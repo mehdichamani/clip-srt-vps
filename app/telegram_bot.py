@@ -170,6 +170,26 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     input_path: Optional[str] = None
     is_video = False
+    poster_path = os.path.join(work_dir, "poster.jpg")
+
+    async def _send_poster_if_available(caption_text: str):
+        nonlocal status_msg
+        if os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
+            try:
+                with open(poster_path, "rb") as p_file:
+                    poster_msg = await message.reply_photo(
+                        photo=p_file,
+                        caption=caption_text,
+                        reply_markup=cancel_kb,
+                        parse_mode="HTML"
+                    )
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+                status_msg = poster_msg
+            except Exception as pe:
+                logger.warning(f"Could not send poster photo message: {pe}")
 
     try:
         # 1. Determine input source (Telegram File or Web URL)
@@ -190,7 +210,17 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = True
             ext = ".mp4"
             input_path = os.path.join(work_dir, f"input{ext}")
-            await safe_update_status(status_msg, "📥 در حال دانلود ویدیو از تلگرام...", reply_markup=cancel_kb)
+
+            # Extract native Telegram video thumbnail prior to main file download
+            if message.video.thumbnail:
+                try:
+                    await DownloaderService.download_telegram_file(context.bot, message.video.thumbnail.file_id, poster_path)
+                    await _send_poster_if_available("🖼️ <b>پوستر رسانه دریافت شد.</b>\n📥 در حال دانلود ویدیو از تلگرام...")
+                except Exception as te:
+                    logger.warning(f"Failed to download Telegram video thumbnail: {te}")
+
+            if not os.path.exists(poster_path):
+                await safe_update_status(status_msg, "📥 در حال دانلود ویدیو از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, message.video.file_id, input_path)
 
         elif message.document and (message.document.mime_type or "").startswith(("video/", "audio/")):
@@ -210,7 +240,17 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = (message.document.mime_type or "").startswith("video/")
             ext = os.path.splitext(message.document.file_name or "media")[1] or (".mp4" if is_video else ".mp3")
             input_path = os.path.join(work_dir, f"input{ext}")
-            await safe_update_status(status_msg, "📥 در حال دانلود فایل رسانه از تلگرام...", reply_markup=cancel_kb)
+
+            # Extract document thumbnail if available prior to main file download
+            if message.document.thumbnail:
+                try:
+                    await DownloaderService.download_telegram_file(context.bot, message.document.thumbnail.file_id, poster_path)
+                    await _send_poster_if_available("🖼️ <b>پوستر رسانه دریافت شد.</b>\n📥 در حال دانلود فایل از تلگرام...")
+                except Exception as te:
+                    logger.warning(f"Failed to download Telegram document thumbnail: {te}")
+
+            if not os.path.exists(poster_path):
+                await safe_update_status(status_msg, "📥 در حال دانلود فایل رسانه از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, message.document.file_id, input_path)
 
         elif message.audio or message.voice:
@@ -240,7 +280,14 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 if os.path.exists(work_dir):
                     shutil.rmtree(work_dir, ignore_errors=True)
                 return
-            await safe_update_status(status_msg, f"🌐 در حال دانلود رسانه از لینک:\n`{url}`...", parse_mode="Markdown", reply_markup=cancel_kb)
+
+            # Fetch web thumbnail prior to downloading main video file
+            has_web_thumb = await DownloaderService.fetch_web_thumbnail(url, poster_path)
+            if has_web_thumb:
+                await _send_poster_if_available(f"🖼️ <b>پوستر رسانه دریافت شد.</b>\n🌐 در حال دانلود رسانه از لینک:\n<code>{url}</code>...")
+            else:
+                await safe_update_status(status_msg, f"🌐 در حال دانلود رسانه از لینک:\n`{url}`...", parse_mode="Markdown", reply_markup=cancel_kb)
+
             input_path = await DownloaderService.download_web_media(url, work_dir)
             is_video = input_path.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi"))
 
@@ -250,27 +297,6 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
             return
-
-        # 1.5 Extract poster image if video media is detected
-        if is_video and input_path:
-            poster_path = os.path.join(work_dir, "poster.jpg")
-            has_poster = await MediaProcessor.extract_poster(input_path, poster_path)
-            if has_poster:
-                try:
-                    with open(poster_path, "rb") as p_file:
-                        poster_msg = await message.reply_photo(
-                            photo=p_file,
-                            caption="🖼️ <b>پوستر رسانه استخراج شد.</b>\n🎵 در حال استخراج صدا...",
-                            reply_markup=cancel_kb,
-                            parse_mode="HTML"
-                        )
-                    try:
-                        await status_msg.delete()
-                    except Exception:
-                        pass
-                    status_msg = poster_msg
-                except Exception as pe:
-                    logger.warning(f"Could not send poster photo message: {pe}")
 
         # 2. Extract Audio (16kHz mono MP3)
         audio_path = os.path.join(work_dir, "extracted_audio.mp3")

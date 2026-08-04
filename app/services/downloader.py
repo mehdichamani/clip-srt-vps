@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import atexit
+import urllib.request
 from typing import Optional
 import yt_dlp
 from telegram import Bot
@@ -41,6 +42,28 @@ def get_cookies_content(cookies_str: str) -> str:
     except Exception:
         return cookies_str
 
+def _setup_cookie_file(ydl_opts: dict) -> Optional[str]:
+    """Applies cookie configuration to ydl_opts and returns temp_cookie_path if created."""
+    temp_cookie_path = None
+    if settings.instagram_cookies:
+        try:
+            cookie_content = get_cookies_content(settings.instagram_cookies)
+            if cookie_content:
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as f:
+                    f.write(cookie_content)
+                    temp_cookie_path = f.name
+                _temp_cookie_files.add(temp_cookie_path)
+                ydl_opts['cookiefile'] = temp_cookie_path
+                logger.info("Using temporary cookie file created from INSTAGRAM_COOKIES environment variable.")
+        except Exception as e:
+            logger.error(f"Failed to create temporary cookie file: {e}")
+    else:
+        local_cookies = 'cookies.txt'
+        if os.path.exists(local_cookies):
+            ydl_opts['cookiefile'] = local_cookies
+            logger.info("Using local cookies.txt file.")
+    return temp_cookie_path
+
 URL_REGEX = re.compile(
     r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
 )
@@ -66,6 +89,56 @@ class DownloaderService:
         return destination_path
 
     @staticmethod
+    async def fetch_web_thumbnail(url: str, output_path: str) -> Optional[str]:
+        """
+        Fetches web media thumbnail without downloading the video payload.
+        Saves thumbnail image to output_path and returns output_path if successful.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+        }
+        temp_cookie_path = _setup_cookie_file(ydl_opts)
+
+        def _get_thumb():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if not info:
+                    return None
+                thumb_url = info.get('thumbnail')
+                if not thumb_url and info.get('thumbnails'):
+                    thumb_url = info['thumbnails'][-1].get('url')
+                if not thumb_url:
+                    return None
+
+                req = urllib.request.Request(
+                    thumb_url,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp, open(output_path, 'wb') as f:
+                    f.write(resp.read())
+
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    logger.info(f"Web thumbnail downloaded successfully to {output_path}")
+                    return output_path
+                return None
+
+        try:
+            return await asyncio.to_thread(_get_thumb)
+        except Exception as e:
+            logger.warning(f"Could not fetch web thumbnail for {url}: {e}")
+            return None
+        finally:
+            if temp_cookie_path:
+                try:
+                    if os.path.exists(temp_cookie_path):
+                        os.remove(temp_cookie_path)
+                    _temp_cookie_files.discard(temp_cookie_path)
+                except Exception as e:
+                    logger.error(f"Failed to remove temporary cookie file {temp_cookie_path}: {e}")
+
+    @staticmethod
     async def download_web_media(url: str, output_dir: str) -> str:
         """
         Downloads video or audio from web URLs (YouTube, Twitter/X, TikTok, Instagram, etc.) using yt-dlp.
@@ -83,25 +156,7 @@ class DownloaderService:
             'max_filesize': 50 * 1024 * 1024,  # 50 MB limit
         }
 
-        temp_cookie_path = None
-
-        if settings.instagram_cookies:
-            try:
-                cookie_content = get_cookies_content(settings.instagram_cookies)
-                if cookie_content:
-                    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as f:
-                        f.write(cookie_content)
-                        temp_cookie_path = f.name
-                    _temp_cookie_files.add(temp_cookie_path)
-                    ydl_opts['cookiefile'] = temp_cookie_path
-                    logger.info("Using temporary cookie file created from INSTAGRAM_COOKIES environment variable.")
-            except Exception as e:
-                logger.error(f"Failed to create temporary cookie file: {e}")
-        else:
-            local_cookies = 'cookies.txt'
-            if os.path.exists(local_cookies):
-                ydl_opts['cookiefile'] = local_cookies
-                logger.info("Using local cookies.txt file.")
+        temp_cookie_path = _setup_cookie_file(ydl_opts)
 
         logger.info(f"Downloading media from URL: {url} via yt-dlp...")
 
@@ -134,3 +189,4 @@ class DownloaderService:
                     _temp_cookie_files.discard(temp_cookie_path)
                 except Exception as e:
                     logger.error(f"Failed to remove temporary cookie file {temp_cookie_path}: {e}")
+
