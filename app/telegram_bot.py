@@ -33,6 +33,16 @@ logger = logging.getLogger("clip_srt_bot")
 active_jobs = {}
 MAX_TG_FILE_SIZE = 20 * 1024 * 1024  # 20 MB Telegram Bot API limit
 
+async def safe_edit_text(message, text: str, **kwargs):
+    """Safely edits a Telegram message text, suppressing 'Message is not modified' error."""
+    try:
+        return await message.edit_text(text, **kwargs)
+    except BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return message
+        raise e
+
+
 def clean_old_jobs():
     """Removes temporary directories for jobs older than 1 hour."""
     now = time.time()
@@ -143,7 +153,8 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         # 1. Determine input source (Telegram File or Web URL)
         if message.video:
             if message.video.file_size and message.video.file_size > MAX_TG_FILE_SIZE:
-                await status_msg.edit_text(
+                await safe_edit_text(
+                    status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
                     "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
                     "💡 <b>راهکار:</b> لطفاً <b>لینک مستقیم ویدیو</b> (از یوتیوب، اینستاگرام، تیک‌تاک و ...) را ارسال کنید تا بدون محدودیت پردازش شود.",
@@ -157,12 +168,13 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = True
             ext = ".mp4"
             input_path = os.path.join(work_dir, f"input{ext}")
-            await status_msg.edit_text("📥 در حال دانلود ویدیو از تلگرام...")
+            await safe_edit_text(status_msg, "📥 در حال دانلود ویدیو از تلگرام...")
             await DownloaderService.download_telegram_file(context.bot, message.video.file_id, input_path)
 
         elif message.document and (message.document.mime_type or "").startswith(("video/", "audio/")):
             if message.document.file_size and message.document.file_size > MAX_TG_FILE_SIZE:
-                await status_msg.edit_text(
+                await safe_edit_text(
+                    status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
                     "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
                     "💡 <b>راهکار:</b> لطفاً <b>لینک مستقیم ویدیو</b> را ارسال کنید تا بدون محدودیت پردازش شود.",
@@ -176,13 +188,14 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = (message.document.mime_type or "").startswith("video/")
             ext = os.path.splitext(message.document.file_name or "media")[1] or (".mp4" if is_video else ".mp3")
             input_path = os.path.join(work_dir, f"input{ext}")
-            await status_msg.edit_text("📥 در حال دانلود فایل رسانه از تلگرام...")
+            await safe_edit_text(status_msg, "📥 در حال دانلود فایل رسانه از تلگرام...")
             await DownloaderService.download_telegram_file(context.bot, message.document.file_id, input_path)
 
         elif message.audio or message.voice:
             audio_obj = message.audio or message.voice
             if audio_obj and audio_obj.file_size and audio_obj.file_size > MAX_TG_FILE_SIZE:
-                await status_msg.edit_text(
+                await safe_edit_text(
+                    status_msg,
                     "⚠️ <b>حجم فایل صوتی بیش از ۲۰ مگابایت است:</b>\nلطفاً لینک مستقیم فایل صوتی یا ویدیو را ارسال کنید.",
                     parse_mode="HTML"
                 )
@@ -194,23 +207,23 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = False
             file_id = message.audio.file_id if message.audio else message.voice.file_id
             input_path = os.path.join(work_dir, "input.m4a" if message.voice else "input.mp3")
-            await status_msg.edit_text("📥 در حال دانلود صدا از تلگرام...")
+            await safe_edit_text(status_msg, "📥 در حال دانلود صدا از تلگرام...")
             await DownloaderService.download_telegram_file(context.bot, file_id, input_path)
 
         elif message.text:
             url = DownloaderService.extract_url(message.text)
             if not url:
-                await status_msg.edit_text("💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
+                await safe_edit_text(status_msg, "💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
                 active_jobs.pop(job_id, None)
                 if os.path.exists(work_dir):
                     shutil.rmtree(work_dir, ignore_errors=True)
                 return
-            await status_msg.edit_text(f"🌐 در حال دانلود رسانه از لینک: `{url}`...", parse_mode="Markdown")
+            await safe_edit_text(status_msg, f"🌐 در حال دانلود رسانه از لینک: `{url}`...", parse_mode="Markdown")
             input_path = await DownloaderService.download_web_media(url, work_dir)
             is_video = input_path.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi"))
 
         else:
-            await status_msg.edit_text("❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
+            await safe_edit_text(status_msg, "❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
             active_jobs.pop(job_id, None)
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
@@ -218,16 +231,16 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         # 2. Extract Audio (16kHz mono MP3)
         audio_path = os.path.join(work_dir, "extracted_audio.mp3")
-        await status_msg.edit_text("🎵 در حال استخراج صدا...")
+        await safe_edit_text(status_msg, "🎵 در حال استخراج صدا...")
         await MediaProcessor.extract_audio(input_path, audio_path)
 
         # 3. Speech-to-Text via Groq Whisper-large-v3
-        await status_msg.edit_text("🎙️ در حال تبدیل گفتار به متن با Groq Whisper...")
+        await safe_edit_text(status_msg, "🎙️ در حال تبدیل گفتار به متن با Groq Whisper...")
         stt_service = STTService()
         english_srt = await stt_service.transcribe(audio_path)
 
         # 4. Translation to Persian via Gemini 2.5 Flash
-        await status_msg.edit_text("🌐 در حال ترجمه زیرنویس به فارسی با Gemini...")
+        await safe_edit_text(status_msg, "🌐 در حال ترجمه زیرنویس به فارسی با Gemini...")
         translation_service = TranslationService()
         persian_srt = await translation_service.translate_to_persian(english_srt)
 
@@ -260,8 +273,11 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
 
     except BadRequest as br_err:
-        logger.error(f"Telegram BadRequest in process_media_job: {br_err}")
         err_msg = str(br_err)
+        if "message is not modified" in err_msg.lower():
+            logger.debug(f"Ignored 'Message is not modified' error: {br_err}")
+            return
+        logger.error(f"Telegram BadRequest in process_media_job: {br_err}")
         if "file is too big" in err_msg.lower():
             user_msg = (
                 "⚠️ <b>حجم فایل بیش از حد مجاز تلگرام است:</b>\n\n"
