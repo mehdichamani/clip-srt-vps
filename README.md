@@ -19,7 +19,7 @@
 **clip-srt-vps** is a lightweight, cloud-native Telegram bot and web service built with Python, FastAPI, and `python-telegram-bot`. It leverages state-of-the-art AI APIs (Groq Whisper, Google Gemini, OpenAI) and FFmpeg to extract audio, generate precise subtitle transcriptions, translate subtitles into fluent line-by-line Persian, and soft-embed subtitles into video clips on the fly.
 
 - **Cloud-Native AI Workloads:** Uses Groq Whisper (`whisper-large-v3`) for lightning-fast speech-to-text with word-level timestamps.
-- **Fluent Persian Translation:** Uses Google Gemini (`gemini-2.5-flash`) for natural Persian translation with automatic Round-Robin load balancing across multiple API keys while preserving `.srt` timing.
+- **Fluent Persian Translation:** Uses Groq AI (`llama-3.3-70b-versatile`) for natural Persian translation with fallback to Google Gemini (`gemini-2.5-flash`), while preserving exact `.srt` timing.
 - **Line-by-Line Subtitles:** Produces alternating original language / Persian translation subtitles.
 - **Fast Soft-Subtitle Embedding:** Soft-embeds subtitles into MP4/MOV containers via FFmpeg without full video re-encoding.
 - **Web Video Download Support:** Downloads videos directly from social media platforms using `yt-dlp`.
@@ -133,8 +133,8 @@ Add the following Environment Variables in your Render Web Service settings:
 | Variable | Required | Description | Example |
 | :--- | :---: | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | **Yes** | Telegram Bot token from [@BotFather](https://t.me/BotFather) | `123456789:ABCdef...` |
-| `GROQ_API_KEY` | **Yes** | Groq API Key from [Groq Console](https://console.groq.com/) | `gsk_...` |
-| `GEMINI_API_KEY` | **Yes** | Google Gemini API key from [Google AI Studio](https://aistudio.google.com/) | `AIzaSy...` |
+| `GROQ_API_KEY` | **Yes** | Groq API Key for Whisper STT & LLM Translation from [Groq Console](https://console.groq.com/) | `gsk_...` |
+| `GEMINI_API_KEY` | Optional | Optional Google Gemini API key from [Google AI Studio](https://aistudio.google.com/) for fallback | `AIzaSy...` |
 | `RENDER_EXTERNAL_URL` | **Yes** | Public Render service HTTPS URL (No trailing slash) | `https://clip-srt-vps.onrender.com` |
 | `WEBHOOK_SECRET` | Optional | Secret token for secure webhook authorization | `random_secret_string` |
 | `INSTAGRAM_COOKIES` | Optional | Base64-encoded string of `cookies.txt` for Instagram downloads | `IyBOZXRzY2FwZSBDb29raWU...` |
@@ -159,7 +159,7 @@ Add the following Environment Variables in your Render Web Service settings:
 **clip-srt-vps** یک ربات تلگرام و سرویس ابری سبک و هوشمند است که با زبان پایتون، فریم‌ورک FastAPI و کتابخانه `python-telegram-bot` توسعه یافته است. این ربات با بهره‌گیری از هوش مصنوعی Groq Whisper، Google Gemini و FFmpeg، صدا را استخراج کرده، زیرنویس دقیق را تولید می‌کند، آن را به فارسی روان ترجمه کرده و زیرنویس سافت‌ساب را روی ویدیو متصل می‌نماید.
 
 - **تبدیل گفتار به متن هوشمند:** استفاده از Groq Whisper (`whisper-large-v3`) برای استخراج متن و زمان‌بندی دقیق زیرنویس.
-- **ترجمه فارسی روان:** ترجمه خط به خط با Google Gemini (`gemini-2.5-flash`) یا مدل‌های OpenAI با حفظ کامل زمان‌بندی فایل `.srt`.
+- **ترجمه فارسی روان:** ترجمه خط به خط با Groq AI (`llama-3.3-70b-versatile`) و پشتیبانی از فال‌بک به Gemini با حفظ کامل زمان‌بندی فایل `.srt`.
 - **نمایش متناوب زیرنویس:** تولید زیرنویس دو زبانه (زبان اصلی / فارسی متناوب).
 - **الصاق سریع زیرنویس سافت‌ساب:** الصاق زیرنویس روی ویدیو با FFmpeg بدون افت کیفیت و رندر طولانی.
 - **دانلود از شبکه‌های اجتماعی:** پشتیبانی از دریافت ویدیو از لینک‌های مختلف با `yt-dlp`.
@@ -258,8 +258,8 @@ services:
 | متغیر | اجباری | توضیحات | نمونه |
 | :--- | :---: | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | **بله** | توکن ربات دریافتی از [@BotFather](https://t.me/BotFather) | `123456789:ABCdef...` |
-| `GROQ_API_KEY` | **بله** | کلید API سرور [Groq Console](https://console.groq.com/) | `gsk_...` |
-| `GEMINI_API_KEY` | **بله** | کلید API جمینای از [Google AI Studio](https://aistudio.google.com/) | `AIzaSy...` |
+| `GROQ_API_KEY` | **بله** | کلید API سرور Groq برای تبدیل گفتار به متن و ترجمه هوشمند | `gsk_...` |
+| `GEMINI_API_KEY` | اختیاری | کلید API جمینای از Google AI Studio برای جایگزین موقت (Fallback) | `AIzaSy...` |
 | `RENDER_EXTERNAL_URL` | **بله** | آدرس عمومی HTTPS سرویس رندر برای ثبت وب‌هوک | `https://clip-srt-vps.onrender.com` |
 | `WEBHOOK_SECRET` | اختیاری | توکن امنیتی وب‌هوک جهت تایید درگاه | `random_secret_string` |
 | `INSTAGRAM_COOKIES` | اختیاری | رشته Base64 شده فایل `cookies.txt` برای دانلود از اینستاگرام | `IyBOZXRzY2FwZSBDb29raWU...` |

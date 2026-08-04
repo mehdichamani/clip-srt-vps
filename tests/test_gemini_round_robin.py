@@ -32,11 +32,11 @@ class TestGeminiRoundRobin(unittest.TestCase):
             # Reset index for deterministic test
             TranslationService._key_index = 0
             
-            self.assertEqual(TranslationService.get_next_api_key(), "keyA")
-            self.assertEqual(TranslationService.get_next_api_key(), "keyB")
-            self.assertEqual(TranslationService.get_next_api_key(), "keyC")
-            self.assertEqual(TranslationService.get_next_api_key(), "keyA")
-            self.assertEqual(TranslationService.get_next_api_key(), "keyB")
+            self.assertEqual(TranslationService.get_next_gemini_api_key(), "keyA")
+            self.assertEqual(TranslationService.get_next_gemini_api_key(), "keyB")
+            self.assertEqual(TranslationService.get_next_gemini_api_key(), "keyC")
+            self.assertEqual(TranslationService.get_next_gemini_api_key(), "keyA")
+            self.assertEqual(TranslationService.get_next_gemini_api_key(), "keyB")
 
 
 if __name__ == "__main__":

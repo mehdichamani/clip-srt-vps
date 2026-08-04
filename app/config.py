@@ -45,8 +45,6 @@ class Settings(BaseSettings):
             missing.append("TELEGRAM_BOT_TOKEN")
         if not self.groq_api_key:
             missing.append("GROQ_API_KEY")
-        if not self.get_gemini_api_keys():
-            missing.append("GEMINI_API_KEY / GEMINI_API_KEYS")
         
         if missing:
             logger.error(f"Missing required environment variables: {', '.join(missing)}")
