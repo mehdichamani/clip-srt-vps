@@ -437,13 +437,28 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             output_video_path = os.path.join(work_dir, "subtitled_output.mp4")
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
 
-            # Always send clip output explicitly as document attachment (send_document / reply_document)
-            with open(output_video_path, "rb") as vid_file:
-                await query.message.reply_document(
-                    document=vid_file,
-                    filename="subtitled_video.mp4",
-                    caption="✅ **ویدیو با زیرنویس سافت‌ساب آماده شد!**"
-                )
+            poster_path = os.path.join(work_dir, "poster.jpg")
+            thumb_file = open(poster_path, "rb") if os.path.exists(poster_path) else None
+
+            try:
+                # Always send clip output explicitly as document attachment (send_document / reply_document)
+                with open(output_video_path, "rb") as vid_file:
+                    await query.message.reply_document(
+                        document=vid_file,
+                        filename="subtitled_video.mp4",
+                        caption="✅ <b>ویدیو با زیرنویس سافت‌ساب آماده شد!</b>",
+                        thumbnail=thumb_file,
+                        parse_mode="HTML"
+                    )
+                logger.info(f"Sent subtitled video clip as document attachment ({output_video_path})")
+            finally:
+                if thumb_file:
+                    thumb_file.close()
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
 
         elif action == "text":
             with open(srt_file_path, "r", encoding="utf-8") as f:
