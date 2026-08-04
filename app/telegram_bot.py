@@ -23,10 +23,11 @@ from app.services.downloader import DownloaderService
 from app.services.media_processor import MediaProcessor
 from app.services.stt_service import STTService
 from app.services.translator import TranslationService
+from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text
 
 logger = logging.getLogger("clip_srt_bot")
 
-# Track active jobs to handle callback responses
+# Track active jobs to handle callback responses and retries
 active_jobs = {}
 
 def clean_old_jobs():
@@ -42,31 +43,6 @@ def clean_old_jobs():
             logger.info(f"Cleaning up expired job {job_id} at {job_info['work_dir']}")
             shutil.rmtree(job_info['work_dir'], ignore_errors=True)
 
-def srt_to_line_by_line(srt_content: str) -> str:
-    """Extracts only text lines from an SRT subtitles format content."""
-    lines = []
-    current_text = []
-    in_text = False
-    for line in srt_content.splitlines():
-        line_str = line.strip()
-        if not line_str:
-            if current_text:
-                lines.append(" ".join(current_text))
-                current_text = []
-            in_text = False
-            continue
-        if line_str.isdigit():
-            in_text = False
-            continue
-        if "-->" in line_str:
-            in_text = True
-            continue
-        if in_text:
-            current_text.append(line_str)
-    if current_text:
-        lines.append(" ".join(current_text))
-    return "\n".join(lines)
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command."""
     welcome_text = (
@@ -74,8 +50,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "لطفاً یک **ویدیو کوتاه**، **فایل صوتی**، **پیام صوتی** یا یک **لینک ویدیو** (یوتیوب، تیک‌تاک، توییتر، اینستاگرام و غیره) برای من ارسال کنید.\n\n"
         "✨ **کارهایی که من انجام می‌دهم:**\n"
         "۱. استخراج صدا و تبدیل گفتار به متن با **Groq Whisper (whisper-large-v3)**.\n"
-        "۲. ترجمه زیرنویس به فارسی روان با **Google Gemini (gemini-2.5-flash)**.\n"
-        "۳. امکان انتخاب دریافت ویدیو با زیرنویس سافت‌ساب یا فقط متن ترجمه شده."
+        "۲. ترجمه زیرنویس به فارسی روان با **Google Gemini (gemini-2.5-flash)** به صورت خط به خط متناوب (زبان اصلی / فارسی).\n"
+        "۳. امکان انتخاب دریافت ویدیو به صورت فایل با زیرنویس سافت‌ساب یا فقط متن ترجمه شده."
     )
     if update.message:
         await update.message.reply_text(welcome_text, parse_mode="Markdown")
@@ -91,7 +67,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if update.message:
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
-async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, job_id: Optional[str] = None) -> None:
     """Core processor for video/audio attachments or media URLs."""
     if not update.message:
         return
@@ -108,9 +84,19 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     message = update.message
     status_msg = await message.reply_text("⏳ در حال پردازش درخواست شما...")
-    job_id = str(uuid.uuid4())[:8]
+    
+    if not job_id:
+        job_id = str(uuid.uuid4())[:8]
+        
     work_dir = os.path.join(tempfile.gettempdir(), f"clip_srt_{job_id}")
     os.makedirs(work_dir, exist_ok=True)
+
+    # Save initial job info with update object for retries
+    active_jobs[job_id] = {
+        'update': update,
+        'work_dir': work_dir,
+        'timestamp': time.time()
+    }
 
     input_path: Optional[str] = None
     is_video = False
@@ -170,21 +156,22 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         translation_service = TranslationService()
         persian_srt = await translation_service.translate_to_persian(english_srt)
 
-        # Save Persian SRT to file
-        srt_file_path = os.path.join(work_dir, "subtitles_persian.srt")
+        # 5. Format into line-by-line alternating subtitles (Line 1: Original, Line 2: Persian)
+        bilingual_srt = merge_bilingual_srt(english_srt, persian_srt)
+
+        srt_file_path = os.path.join(work_dir, "subtitles_bilingual.srt")
         with open(srt_file_path, "w", encoding="utf-8") as f:
-            f.write(persian_srt)
+            f.write(bilingual_srt)
 
         # Store job information for the callback query handler
-        active_jobs[job_id] = {
-            'work_dir': work_dir,
+        active_jobs[job_id].update({
             'is_video': is_video,
             'srt_file_path': srt_file_path,
             'input_path': input_path,
             'timestamp': time.time()
-        }
+        })
 
-        # 5. Present the 2 choices using inline keyboard
+        # Send a NEW message to notify completion and ask for format selection
         keyboard = [
             [
                 InlineKeyboardButton("🎥 ویدیو با زیرنویس (Softsub)", callback_data=f"softsub_{job_id}"),
@@ -192,32 +179,55 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await status_msg.edit_text(
+        await message.reply_text(
             "✅ ترجمه با موفقیت انجام شد. لطفاً فرمت خروجی مورد نظر خود را انتخاب کنید:",
             reply_markup=reply_markup
         )
 
     except Exception as e:
         logger.error(f"Error processing request: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ **عملیات با خطا مواجه شد:** {str(e)[:300]}")
-        # Clean up directory on failure
+        # Send a NEW message with error details and Retry button
+        retry_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
+        ])
+        await message.reply_text(
+            f"❌ **عملیات با خطا مواجه شد:**\n`{str(e)[:300]}`\n\nمی‌توانید با دکمه زیر مجدداً تلاش کنید:",
+            reply_markup=retry_keyboard,
+            parse_mode="Markdown"
+        )
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the selection of the output format by the user."""
+    """Handles callback buttons: Retry and output format selection."""
     query = update.callback_query
     await query.answer()
 
     data = query.data
-    if not (data.startswith("softsub_") or data.startswith("text_")):
+    if not (data.startswith("softsub_") or data.startswith("text_") or data.startswith("retry_")):
+        return
+
+    # Handle Retry action
+    if data.startswith("retry_"):
+        _, job_id = data.split("_", 1)
+        job_info = active_jobs.get(job_id)
+        if not job_info or 'update' not in job_info:
+            await query.message.reply_text("❌ خطا: اطلاعات این درخواست دیگر در دسترس نیست (احتمالاً منقضی شده است). لطفاً فایل یا لینک را دوباره ارسال کنید.")
+            return
+        
+        orig_update = job_info['update']
+        if 'work_dir' in job_info and os.path.exists(job_info['work_dir']):
+            shutil.rmtree(job_info['work_dir'], ignore_errors=True)
+            
+        await query.message.reply_text("🔄 در حال تلاش مجدد برای پردازش...")
+        await process_media_job(orig_update, context, job_id=job_id)
         return
 
     action, job_id = data.split("_", 1)
     job_info = active_jobs.get(job_id)
 
-    if not job_info:
-        await query.message.reply_text("❌ خطا: اطلاعات این درخواست دیگر در دسترس نیست (احتمالاً منقضی شده است).")
+    if not job_info or 'srt_file_path' not in job_info:
+        await query.message.reply_text("❌ خطا: اطلاعات این درخواست دیگر در دسترس نیست (احتمالاً منقضی شده است). لطفاً فایل را دوباره ارسال کنید.")
         return
 
     work_dir = job_info['work_dir']
@@ -225,21 +235,17 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     input_path = job_info['input_path']
     is_video = job_info['is_video']
 
-    # Keep status updated
-    status_msg = await query.message.reply_text("⏳ در حال آماده‌سازی فایل انتخابی شما...")
-
     try:
         if action == "softsub":
             if not is_video:
-                await status_msg.edit_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد.")
+                await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد.")
                 return
 
-            await status_msg.edit_text("🎬 در حال ریماکس کردن زیرنویس روی ویدیو...")
+            status_msg = await query.message.reply_text("🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
             output_video_path = os.path.join(work_dir, "subtitled_output.mp4")
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
 
-            await status_msg.edit_text("📤 در حال ارسال ویدیو بدون فشرده‌سازی...")
-            # Send as uncompressed video (document)
+            # Always send clip output explicitly as document attachment (send_document / reply_document)
             with open(output_video_path, "rb") as vid_file:
                 await query.message.reply_document(
                     document=vid_file,
@@ -248,15 +254,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 )
 
         elif action == "text":
-            await status_msg.edit_text("📝 در حال استخراج متن ترجمه...")
             with open(srt_file_path, "r", encoding="utf-8") as f:
                 srt_content = f.read()
 
-            translated_text = srt_to_line_by_line(srt_content)
+            translated_text = srt_to_alternating_text(srt_content)
 
             if len(translated_text) < 4000:
                 await query.message.reply_text(
-                    f"📝 **متن ترجمه شده خط به خط:**\n\n{translated_text}"
+                    f"📝 **متن ترجمه شده خط به خط (زبان اصلی / فارسی):**\n\n{translated_text}"
                 )
             else:
                 txt_file_path = os.path.join(work_dir, "translation.txt")
@@ -266,21 +271,24 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     await query.message.reply_document(
                         document=tf,
                         filename="translation.txt",
-                        caption="📝 **متن ترجمه شده خط به خط**"
+                        caption="📝 **متن ترجمه شده خط به خط (زبان اصلی / فارسی)**"
                     )
 
-        # Cleanup
+        # Clean up job directory after success
         active_jobs.pop(job_id, None)
-        shutil.rmtree(work_dir, ignore_errors=True)
-        await query.message.delete()  # delete the inline buttons message
-        await status_msg.delete()
+        if os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     except Exception as e:
         logger.error(f"Error handling callback choice {action}: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ خطایی در پردازش و ارسال فایل رخ داد: {str(e)[:300]}")
-        # Clean up anyway on error
-        active_jobs.pop(job_id, None)
-        shutil.rmtree(work_dir, ignore_errors=True)
+        retry_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
+        ])
+        await query.message.reply_text(
+            f"❌ **خطایی در پردازش و ارسال فایل رخ داد:**\n`{str(e)[:300]}`\n\nمی‌توانید مجدداً تلاش کنید:",
+            reply_markup=retry_keyboard,
+            parse_mode="Markdown"
+        )
 
 def create_telegram_application() -> Application:
     """Builds and configures python-telegram-bot Application instance."""
@@ -299,3 +307,4 @@ def create_telegram_application() -> Application:
     ))
 
     return app
+

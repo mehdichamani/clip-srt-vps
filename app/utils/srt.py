@@ -59,3 +59,80 @@ def clean_srt_response(raw_text: str) -> str:
     text = re.sub(r"^```(?:srt)?", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"```$", "", text).strip()
     return text
+
+def parse_srt_blocks(srt_content: str) -> List[Dict[str, str]]:
+    """
+    Parses an SRT format string into a list of block dicts:
+    [{'index': '1', 'time': '00:00:01,000 --> 00:00:04,000', 'text': '...'}]
+    """
+    blocks = []
+    raw_blocks = re.split(r'\n\s*\n', srt_content.strip())
+    for b in raw_blocks:
+        lines = [line.strip() for line in b.strip().splitlines() if line.strip()]
+        if not lines:
+            continue
+        # Find time line with '-->'
+        time_index = -1
+        for idx, line in enumerate(lines):
+            if "-->" in line:
+                time_index = idx
+                break
+        if time_index == -1:
+            continue
+        
+        index_str = lines[0] if time_index > 0 else str(len(blocks) + 1)
+        time_str = lines[time_index]
+        text_lines = lines[time_index + 1:]
+        text_str = "\n".join(text_lines)
+        blocks.append({
+            'index': index_str,
+            'time': time_str,
+            'text': text_str
+        })
+    return blocks
+
+def merge_bilingual_srt(original_srt: str, translated_srt: str) -> str:
+    """
+    Merges original language SRT and Persian translated SRT into alternating lines:
+    Line 1: Original Language
+    Line 2: Persian Translation
+    (Alternating throughout the entire SRT subtitle file).
+    """
+    orig_blocks = parse_srt_blocks(original_srt)
+    trans_blocks = parse_srt_blocks(translated_srt)
+    
+    merged_srt_blocks = []
+    max_len = max(len(orig_blocks), len(trans_blocks))
+    
+    for i in range(max_len):
+        orig = orig_blocks[i] if i < len(orig_blocks) else None
+        trans = trans_blocks[i] if i < len(trans_blocks) else None
+        
+        time_str = (orig and orig['time']) or (trans and trans['time']) or ""
+        orig_text = (orig and orig['text']) or ""
+        trans_text = (trans and trans['text']) or ""
+        
+        # Format text strictly: Line 1 Original, Line 2 Persian
+        combined_text = f"{orig_text}\n{trans_text}".strip()
+        
+        block = f"{i + 1}\n{time_str}\n{combined_text}\n"
+        merged_srt_blocks.append(block)
+        
+    return "\n".join(merged_srt_blocks)
+
+def srt_to_alternating_text(srt_content: str) -> str:
+    """
+    Extracts subtitle text lines from an SRT string into an alternating line-by-line format:
+    Line 1: Original Language
+    Line 2: Persian Translation
+    Line 3: Original Language
+    Line 4: Persian Translation...
+    """
+    blocks = parse_srt_blocks(srt_content)
+    text_lines = []
+    for b in blocks:
+        lines = [line.strip() for line in b['text'].splitlines() if line.strip()]
+        for line in lines:
+            text_lines.append(line)
+    return "\n".join(text_lines)
+
