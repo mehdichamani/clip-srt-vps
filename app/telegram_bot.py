@@ -33,18 +33,33 @@ logger = logging.getLogger("clip_srt_bot")
 active_jobs = {}
 MAX_TG_FILE_SIZE = 20 * 1024 * 1024  # 20 MB Telegram Bot API limit
 
-async def safe_edit_text(message, text: str, **kwargs):
-    """Safely edits a Telegram message text, suppressing 'Message is not modified' error."""
+async def safe_update_status(message, text: str, **kwargs):
+    """Safely updates status text or photo caption of a Telegram message, suppressing 'Message is not modified' error."""
     try:
-        return await message.edit_text(text, **kwargs)
+        if message.photo:
+            return await message.edit_caption(caption=text, **kwargs)
+        else:
+            return await message.edit_text(text, **kwargs)
     except BadRequest as e:
         if "message is not modified" in str(e).lower():
             return message
         raise e
 
 
+async def safe_edit_text(message, text: str, **kwargs):
+    """Backwards-compatible wrapper for safe_update_status."""
+    return await safe_update_status(message, text, **kwargs)
+
+
+def get_cancel_keyboard(job_id: str) -> InlineKeyboardMarkup:
+    """Creates inline keyboard with a Cancel Process button."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ لغو عملیات", callback_data=f"cancel_{job_id}")]
+    ])
+
+
 def clean_old_jobs():
-    """Removes temporary directories for jobs older than 1 hour."""
+    """Removes temporary directories and cancels active tasks for jobs older than 1 hour."""
     now = time.time()
     expired = []
     for job_id, job_info in active_jobs.items():
@@ -52,9 +67,13 @@ def clean_old_jobs():
             expired.append(job_id)
     for job_id in expired:
         job_info = active_jobs.pop(job_id, None)
-        if job_info and 'work_dir' in job_info:
-            logger.info(f"Cleaning up expired job {job_id} at {job_info['work_dir']}")
-            shutil.rmtree(job_info['work_dir'], ignore_errors=True)
+        if job_info:
+            task = job_info.get('task')
+            if task and not task.done():
+                task.cancel()
+            if 'work_dir' in job_info:
+                logger.info(f"Cleaning up expired job {job_id} at {job_info['work_dir']}")
+                shutil.rmtree(job_info['work_dir'], ignore_errors=True)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command."""
@@ -131,7 +150,6 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
 
     message = update.message
-    status_msg = await message.reply_text("⏳ در حال پردازش درخواست شما...")
     
     if not job_id:
         job_id = str(uuid.uuid4())[:8]
@@ -139,10 +157,14 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     work_dir = os.path.join(tempfile.gettempdir(), f"clip_srt_{job_id}")
     os.makedirs(work_dir, exist_ok=True)
 
-    # Save initial job info with update object for retries
+    cancel_kb = get_cancel_keyboard(job_id)
+    status_msg = await message.reply_text("⏳ در حال پردازش درخواست شما...", reply_markup=cancel_kb)
+
+    # Save initial job info with update object and task reference for cancellation
     active_jobs[job_id] = {
         'update': update,
         'work_dir': work_dir,
+        'task': asyncio.current_task(),
         'timestamp': time.time()
     }
 
@@ -153,7 +175,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         # 1. Determine input source (Telegram File or Web URL)
         if message.video:
             if message.video.file_size and message.video.file_size > MAX_TG_FILE_SIZE:
-                await safe_edit_text(
+                await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
                     "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
@@ -168,12 +190,12 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = True
             ext = ".mp4"
             input_path = os.path.join(work_dir, f"input{ext}")
-            await safe_edit_text(status_msg, "📥 در حال دانلود ویدیو از تلگرام...")
+            await safe_update_status(status_msg, "📥 در حال دانلود ویدیو از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, message.video.file_id, input_path)
 
         elif message.document and (message.document.mime_type or "").startswith(("video/", "audio/")):
             if message.document.file_size and message.document.file_size > MAX_TG_FILE_SIZE:
-                await safe_edit_text(
+                await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
                     "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
@@ -188,13 +210,13 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = (message.document.mime_type or "").startswith("video/")
             ext = os.path.splitext(message.document.file_name or "media")[1] or (".mp4" if is_video else ".mp3")
             input_path = os.path.join(work_dir, f"input{ext}")
-            await safe_edit_text(status_msg, "📥 در حال دانلود فایل رسانه از تلگرام...")
+            await safe_update_status(status_msg, "📥 در حال دانلود فایل رسانه از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, message.document.file_id, input_path)
 
         elif message.audio or message.voice:
             audio_obj = message.audio or message.voice
             if audio_obj and audio_obj.file_size and audio_obj.file_size > MAX_TG_FILE_SIZE:
-                await safe_edit_text(
+                await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل صوتی بیش از ۲۰ مگابایت است:</b>\nلطفاً لینک مستقیم فایل صوتی یا ویدیو را ارسال کنید.",
                     parse_mode="HTML"
@@ -207,40 +229,61 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = False
             file_id = message.audio.file_id if message.audio else message.voice.file_id
             input_path = os.path.join(work_dir, "input.m4a" if message.voice else "input.mp3")
-            await safe_edit_text(status_msg, "📥 در حال دانلود صدا از تلگرام...")
+            await safe_update_status(status_msg, "📥 در حال دانلود صدا از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, file_id, input_path)
 
         elif message.text:
             url = DownloaderService.extract_url(message.text)
             if not url:
-                await safe_edit_text(status_msg, "💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
+                await safe_update_status(status_msg, "💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
                 active_jobs.pop(job_id, None)
                 if os.path.exists(work_dir):
                     shutil.rmtree(work_dir, ignore_errors=True)
                 return
-            await safe_edit_text(status_msg, f"🌐 در حال دانلود رسانه از لینک: `{url}`...", parse_mode="Markdown")
+            await safe_update_status(status_msg, f"🌐 در حال دانلود رسانه از لینک:\n`{url}`...", parse_mode="Markdown", reply_markup=cancel_kb)
             input_path = await DownloaderService.download_web_media(url, work_dir)
             is_video = input_path.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi"))
 
         else:
-            await safe_edit_text(status_msg, "❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
+            await safe_update_status(status_msg, "❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
             active_jobs.pop(job_id, None)
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
             return
 
+        # 1.5 Extract poster image if video media is detected
+        if is_video and input_path:
+            poster_path = os.path.join(work_dir, "poster.jpg")
+            has_poster = await MediaProcessor.extract_poster(input_path, poster_path)
+            if has_poster:
+                try:
+                    with open(poster_path, "rb") as p_file:
+                        poster_msg = await message.reply_photo(
+                            photo=p_file,
+                            caption="🖼️ <b>پوستر رسانه استخراج شد.</b>\n🎵 در حال استخراج صدا...",
+                            reply_markup=cancel_kb,
+                            parse_mode="HTML"
+                        )
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+                    status_msg = poster_msg
+                except Exception as pe:
+                    logger.warning(f"Could not send poster photo message: {pe}")
+
         # 2. Extract Audio (16kHz mono MP3)
         audio_path = os.path.join(work_dir, "extracted_audio.mp3")
-        await safe_edit_text(status_msg, "🎵 در حال استخراج صدا...")
+        await safe_update_status(status_msg, "🎵 در حال استخراج صدا...", reply_markup=cancel_kb, parse_mode="HTML")
         await MediaProcessor.extract_audio(input_path, audio_path)
 
         # 3. Speech-to-Text via Groq Whisper-large-v3
-        await safe_edit_text(status_msg, "🎙️ در حال تبدیل گفتار به متن با Groq Whisper...")
+        await safe_update_status(status_msg, "🎙️ در حال تبدیل گفتار به متن با Groq Whisper...", reply_markup=cancel_kb, parse_mode="HTML")
         stt_service = STTService()
         english_srt = await stt_service.transcribe(audio_path)
 
         # 4. Translation to Persian via Gemini 2.5 Flash
-        await safe_edit_text(status_msg, "🌐 در حال ترجمه زیرنویس به فارسی با Gemini...")
+        await safe_update_status(status_msg, "🌐 در حال ترجمه زیرنویس به فارسی با Gemini...", reply_markup=cancel_kb, parse_mode="HTML")
         translation_service = TranslationService()
         persian_srt = await translation_service.translate_to_persian(english_srt)
 
@@ -259,18 +302,27 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             'timestamp': time.time()
         })
 
-        # Send a NEW message to notify completion and ask for format selection
+        # Send completion options with format selection and Cancel button
         keyboard = [
-            [
-                InlineKeyboardButton("🎥 ویدیو با زیرنویس (Softsub)", callback_data=f"softsub_{job_id}"),
-                InlineKeyboardButton("📝 فقط متن ترجمه (خط به خط)", callback_data=f"text_{job_id}")
-            ]
+            [InlineKeyboardButton("📹 ویدیو با زیرنویس (Softsub)", callback_data=f"softsub_{job_id}")],
+            [InlineKeyboardButton("📄 فقط متن ترجمه (خط به خط)", callback_data=f"text_{job_id}")],
+            [InlineKeyboardButton("❌ لغو / حذف", callback_data=f"cancel_{job_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await message.reply_text(
-            "✅ ترجمه با موفقیت انجام شد. لطفاً فرمت خروجی مورد نظر خود را انتخاب کنید:",
-            reply_markup=reply_markup
+
+        await safe_update_status(
+            status_msg,
+            "✅ <b>ترجمه با موفقیت انجام شد.</b>\nلطفاً فرمت خروجی مورد نظر خود را انتخاب کنید:",
+            reply_markup=reply_markup,
+            parse_mode="HTML"
         )
+
+    except asyncio.CancelledError:
+        logger.info(f"Job {job_id} was cancelled by user.")
+        if os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
+        active_jobs.pop(job_id, None)
+        raise
 
     except BadRequest as br_err:
         err_msg = str(br_err)
@@ -307,12 +359,44 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             shutil.rmtree(work_dir, ignore_errors=True)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles callback buttons: Retry and output format selection."""
+    """Handles callback buttons: Retry, Cancel, and output format selection."""
     query = update.callback_query
     await query.answer()
 
     data = query.data
-    if not (data.startswith("softsub_") or data.startswith("text_") or data.startswith("retry_")):
+    if not (data.startswith("softsub_") or data.startswith("text_") or data.startswith("retry_") or data.startswith("cancel_")):
+        return
+
+    # Handle Cancel action
+    if data.startswith("cancel_"):
+        _, job_id = data.split("_", 1)
+        job_info = active_jobs.pop(job_id, None)
+        if job_info:
+            task = job_info.get('task')
+            if task and not task.done():
+                task.cancel()
+            work_dir = job_info.get('work_dir')
+            if work_dir and os.path.exists(work_dir):
+                shutil.rmtree(work_dir, ignore_errors=True)
+            
+            await safe_update_status(
+                query.message,
+                "❌ <b>عملیات توسط کاربر لغو شد.</b>",
+                parse_mode="HTML",
+                reply_markup=None
+            )
+            await query.answer("عملیات لغو شد.")
+        else:
+            try:
+                await safe_update_status(
+                    query.message,
+                    "❌ <b>این عملیات لغو شده یا منقضی شده است.</b>",
+                    parse_mode="HTML",
+                    reply_markup=None
+                )
+            except Exception:
+                pass
+            await query.answer("عملیات منقضی شده است.")
         return
 
     # Handle Retry action
@@ -417,4 +501,5 @@ def create_telegram_application() -> Application:
     ))
 
     return app
+
 
