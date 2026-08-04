@@ -517,7 +517,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 with open(output_video_path, "rb") as vid_file:
                     await query.message.reply_document(
                         document=vid_file,
-                        filename="subtitled_video.mp4",
+                        filename=os.path.basename(output_video_path),
                         caption="✅ <b>ویدیو با زیرنویس سافت‌ساب آماده شد!</b>",
                         thumbnail=thumb_file,
                         parse_mode="HTML"
