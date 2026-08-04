@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     render_external_url: str = ""
     webhook_secret: Optional[str] = None
     port: int = 8000
+    instagram_cookies: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
