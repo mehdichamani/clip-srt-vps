@@ -25,9 +25,31 @@ from app.services.downloader import DownloaderService
 from app.services.media_processor import MediaProcessor
 from app.services.stt_service import STTService
 from app.services.translator import TranslationService
+from app.services.job_tracker import job_tracker
 from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text
 
 logger = logging.getLogger("clip_srt_bot")
+
+def extract_input_desc(message) -> str:
+    """Extracts a short human-readable description of the user's input."""
+    if not message:
+        return "Unknown"
+    if message.video:
+        size_mb = (message.video.file_size or 0) / (1024 * 1024)
+        return f"Video ({size_mb:.1f}MB)" if size_mb else "Video"
+    elif message.document:
+        name = message.document.file_name or "Document"
+        size_mb = (message.document.file_size or 0) / (1024 * 1024)
+        return f"Doc: {name} ({size_mb:.1f}MB)" if size_mb else f"Doc: {name}"
+    elif message.audio or message.voice:
+        audio_obj = message.audio or message.voice
+        size_mb = (audio_obj.file_size or 0) / (1024 * 1024)
+        return f"Audio ({size_mb:.1f}MB)" if message.audio else "Voice Message"
+    elif message.text:
+        url = DownloaderService.extract_url(message.text)
+        return url if url else message.text[:60]
+    return "Unknown Input"
+
 
 # Track active jobs to handle callback responses and retries
 active_jobs = {}
@@ -153,6 +175,19 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     if not job_id:
         job_id = str(uuid.uuid4())[:8]
+
+    user = update.effective_user
+    user_id = user.id if user else None
+    username = f"@{user.username}" if (user and user.username) else (user.full_name if user else "Unknown")
+    input_desc = extract_input_desc(message)
+    
+    job_tracker.add_job(
+        job_id=job_id,
+        user_id=user_id,
+        username=username,
+        input_url_or_file=input_desc,
+        status="pending"
+    )
         
     work_dir = os.path.join(tempfile.gettempdir(), f"clip_srt_{job_id}")
     os.makedirs(work_dir, exist_ok=True)
@@ -192,9 +227,11 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 logger.warning(f"Could not send poster photo message: {pe}")
 
     try:
+        job_tracker.update_job(job_id, status="processing")
         # 1. Determine input source (Telegram File or Web URL)
         if message.video:
             if message.video.file_size and message.video.file_size > MAX_TG_FILE_SIZE:
+                job_tracker.update_job(job_id, status="error", error_message="File size exceeds 20MB limit")
                 await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
@@ -225,6 +262,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         elif message.document and (message.document.mime_type or "").startswith(("video/", "audio/")):
             if message.document.file_size and message.document.file_size > MAX_TG_FILE_SIZE:
+                job_tracker.update_job(job_id, status="error", error_message="File size exceeds 20MB limit")
                 await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
@@ -256,6 +294,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif message.audio or message.voice:
             audio_obj = message.audio or message.voice
             if audio_obj and audio_obj.file_size and audio_obj.file_size > MAX_TG_FILE_SIZE:
+                job_tracker.update_job(job_id, status="error", error_message="Audio size exceeds 20MB limit")
                 await safe_update_status(
                     status_msg,
                     "⚠️ <b>حجم فایل صوتی بیش از ۲۰ مگابایت است:</b>\nلطفاً لینک مستقیم فایل صوتی یا ویدیو را ارسال کنید.",
@@ -275,6 +314,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif message.text:
             url = DownloaderService.extract_url(message.text)
             if not url:
+                job_tracker.update_job(job_id, status="error", error_message="No valid media link or input")
                 await safe_update_status(status_msg, "💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
                 active_jobs.pop(job_id, None)
                 if os.path.exists(work_dir):
@@ -292,6 +332,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = input_path.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi"))
 
         else:
+            job_tracker.update_job(job_id, status="error", error_message="Unsupported media format")
             await safe_update_status(status_msg, "❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
             active_jobs.pop(job_id, None)
             if os.path.exists(work_dir):
@@ -345,6 +386,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     except asyncio.CancelledError:
         logger.info(f"Job {job_id} was cancelled by user.")
+        job_tracker.update_job(job_id, status="canceled", error_message="Canceled by user")
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
         active_jobs.pop(job_id, None)
@@ -356,6 +398,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             logger.debug(f"Ignored 'Message is not modified' error: {br_err}")
             return
         logger.error(f"Telegram BadRequest in process_media_job: {br_err}")
+        job_tracker.update_job(job_id, status="error", error_message=err_msg)
         if "file is too big" in err_msg.lower():
             user_msg = (
                 "⚠️ <b>حجم فایل بیش از حد مجاز تلگرام است:</b>\n\n"
@@ -371,6 +414,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     except Exception as e:
         logger.error(f"Error processing request: {e}", exc_info=True)
+        job_tracker.update_job(job_id, status="error", error_message=str(e))
         # Send a NEW message with HTML-escaped error details and Retry button
         retry_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
@@ -396,6 +440,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     # Handle Cancel action
     if data.startswith("cancel_"):
         _, job_id = data.split("_", 1)
+        job_tracker.update_job(job_id, status="canceled", error_message="Canceled by user")
         job_info = active_jobs.pop(job_id, None)
         if job_info:
             task = job_info.get('task')
@@ -454,6 +499,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     is_video = job_info['is_video']
 
     try:
+        job_tracker.update_job(job_id, status="processing")
         if action == "softsub":
             if not is_video:
                 await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد.")
@@ -507,13 +553,15 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                         caption="📝 **متن ترجمه شده خط به خط (زبان اصلی / فارسی)**"
                     )
 
-        # Clean up job directory after success
+        # Update status to done and clean up job directory
+        job_tracker.update_job(job_id, status="done")
         active_jobs.pop(job_id, None)
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
 
     except Exception as e:
         logger.error(f"Error handling callback choice {action}: {e}", exc_info=True)
+        job_tracker.update_job(job_id, status="error", error_message=str(e))
         retry_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
         ])

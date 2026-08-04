@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     webhook_secret: Optional[str] = None
     port: int = 8000
     instagram_cookies: Optional[str] = None
+    admin_password: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
