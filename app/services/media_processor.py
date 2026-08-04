@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 logger = logging.getLogger("clip_srt_bot")
 
