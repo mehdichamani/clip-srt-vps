@@ -6,7 +6,7 @@ import re
 import tempfile
 import atexit
 import urllib.request
-from typing import Optional
+from typing import Optional, Tuple
 import yt_dlp
 from telegram import Bot
 from app.config import settings
@@ -70,6 +70,30 @@ URL_REGEX = re.compile(
 
 class DownloaderService:
     """Service to handle Telegram media downloads and web media downloads via yt-dlp."""
+
+    @staticmethod
+    def sanitize_filename(channel: Optional[str], title: Optional[str]) -> str:
+        r"""
+        Sanitizes channel and title into filename `{channel_name} - {video_title}.mkv`.
+        Strips illegal characters (/, \, :, *, ?, ", <, >, |) and limits total base name
+        length to ~100 characters max before appending .mkv.
+        """
+        ch_clean = (channel or "").strip() or "Unknown Channel"
+        ti_clean = (title or "").strip() or "Video"
+
+        raw_name = f"{ch_clean} - {ti_clean}"
+        # Strip illegal characters: /, \, :, *, ?, ", <, >, |
+        sanitized = re.sub(r'[/\\:*?"<>|]', '', raw_name)
+        # Collapse multiple spaces into a single space and strip
+        sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+        if not sanitized:
+            sanitized = "Unknown Channel - Video"
+
+        # Limit total file name length to ~100 characters max before adding .mkv
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100].strip()
+
+        return f"{sanitized}.mkv"
 
     @staticmethod
     def extract_url(text: str) -> Optional[str]:
@@ -139,10 +163,10 @@ class DownloaderService:
                     logger.error(f"Failed to remove temporary cookie file {temp_cookie_path}: {e}")
 
     @staticmethod
-    async def download_web_media(url: str, output_dir: str) -> str:
+    async def download_web_media(url: str, output_dir: str) -> Tuple[str, str, str]:
         """
         Downloads video or audio from web URLs (YouTube, Twitter/X, TikTok, Instagram, etc.) using yt-dlp.
-        Returns the absolute path of the downloaded file.
+        Returns a tuple of (downloaded_path, title, channel).
         """
         os.makedirs(output_dir, exist_ok=True)
         outtmpl = os.path.join(output_dir, "%(id)s.%(ext)s")
@@ -163,21 +187,33 @@ class DownloaderService:
         def _do_download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+                if not info:
+                    raise RuntimeError(f"Could not extract info for URL {url}")
+
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+
+                title = info.get("title") or info.get("fulltitle") or "Video"
+                channel = info.get("channel") or info.get("uploader") or info.get("uploader_id") or "Unknown Channel"
+
                 filename = ydl.prepare_filename(info)
                 # If downloaded file has different extension (e.g. mkv/webm), locate actual downloaded file
                 if os.path.exists(filename):
-                    return filename
+                    return filename, str(title), str(channel)
+
                 # Search for file matching id
                 file_id = info.get("id")
-                for f in os.listdir(output_dir):
-                    if file_id in f:
-                        return os.path.join(output_dir, f)
+                if file_id:
+                    for f in os.listdir(output_dir):
+                        if file_id in f:
+                            return os.path.join(output_dir, f), str(title), str(channel)
+
                 raise RuntimeError(f"Could not locate downloaded file for {url}")
 
         try:
-            downloaded_path = await asyncio.to_thread(_do_download)
-            logger.info(f"Web media downloaded successfully: {downloaded_path}")
-            return downloaded_path
+            downloaded_path, title, channel = await asyncio.to_thread(_do_download)
+            logger.info(f"Web media downloaded successfully: {downloaded_path} (Title: {title}, Channel: {channel})")
+            return downloaded_path, title, channel
         except Exception as e:
             logger.error(f"yt-dlp download failed for {url}: {e}")
             raise RuntimeError(f"Media download failed: {str(e)[:200]}")
@@ -189,4 +225,5 @@ class DownloaderService:
                     _temp_cookie_files.discard(temp_cookie_path)
                 except Exception as e:
                     logger.error(f"Failed to remove temporary cookie file {temp_cookie_path}: {e}")
+
 

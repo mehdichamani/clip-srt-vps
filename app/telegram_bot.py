@@ -51,6 +51,26 @@ def extract_input_desc(message) -> str:
     return "Unknown Input"
 
 
+async def get_message_footer(context: ContextTypes.DEFAULT_TYPE, title: str, channel: str) -> str:
+    """Generates the standardized Persian caption/message footer."""
+    bot_username = context.bot.username
+    if not bot_username:
+        try:
+            bot_info = await context.bot.get_me()
+            bot_username = bot_info.username or "bot"
+        except Exception:
+            bot_username = "bot"
+
+    safe_title = html.escape(title or "Video")
+    safe_channel = html.escape(channel or "Unknown Channel")
+
+    return (
+        f"🎬 عنوان: {safe_title}\n"
+        f"📺 کانال: {safe_channel}\n\n"
+        f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
+    )
+
+
 # Track active jobs to handle callback responses and retries
 active_jobs = {}
 MAX_TG_FILE_SIZE = 20 * 1024 * 1024  # 20 MB Telegram Bot API limit
@@ -206,6 +226,8 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     input_path: Optional[str] = None
     is_video = False
     poster_path = os.path.join(work_dir, "poster.jpg")
+    title: str = "Video"
+    channel: str = "Unknown Channel"
 
     async def _send_poster_if_available(caption_text: str):
         nonlocal status_msg
@@ -247,6 +269,8 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = True
             ext = ".mp4"
             input_path = os.path.join(work_dir, f"input{ext}")
+            title = os.path.splitext(message.video.file_name)[0] if message.video.file_name else "Video"
+            channel = "Unknown Channel"
 
             # Extract native Telegram video thumbnail prior to main file download
             if message.video.thumbnail:
@@ -278,6 +302,8 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = (message.document.mime_type or "").startswith("video/")
             ext = os.path.splitext(message.document.file_name or "media")[1] or (".mp4" if is_video else ".mp3")
             input_path = os.path.join(work_dir, f"input{ext}")
+            title = os.path.splitext(message.document.file_name)[0] if message.document.file_name else "Video"
+            channel = "Unknown Channel"
 
             # Extract document thumbnail if available prior to main file download
             if message.document.thumbnail:
@@ -308,6 +334,13 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             is_video = False
             file_id = message.audio.file_id if message.audio else message.voice.file_id
             input_path = os.path.join(work_dir, "input.m4a" if message.voice else "input.mp3")
+            if message.audio:
+                title = message.audio.title if message.audio.title else "Audio"
+                channel = message.audio.performer if message.audio.performer else "Unknown Channel"
+            else:
+                title = "Voice Message"
+                channel = "Unknown Channel"
+
             await safe_update_status(status_msg, "📥 در حال دانلود صدا از تلگرام...", reply_markup=cancel_kb)
             await DownloaderService.download_telegram_file(context.bot, file_id, input_path)
 
@@ -328,7 +361,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             else:
                 await safe_update_status(status_msg, f"🌐 در حال دانلود رسانه از لینک:\n`{url}`...", parse_mode="Markdown", reply_markup=cancel_kb)
 
-            input_path = await DownloaderService.download_web_media(url, work_dir)
+            input_path, title, channel = await DownloaderService.download_web_media(url, work_dir)
             is_video = input_path.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi"))
 
         else:
@@ -366,6 +399,8 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             'is_video': is_video,
             'srt_file_path': srt_file_path,
             'input_path': input_path,
+            'title': title,
+            'channel': channel,
             'timestamp': time.time()
         })
 
@@ -497,6 +532,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     srt_file_path = job_info['srt_file_path']
     input_path = job_info['input_path']
     is_video = job_info['is_video']
+    title = job_info.get('title', 'Video')
+    channel = job_info.get('channel', 'Unknown Channel')
+
+    footer = await get_message_footer(context, title, channel)
 
     try:
         job_tracker.update_job(job_id, status="processing")
@@ -506,19 +545,25 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 return
 
             status_msg = await query.message.reply_text("🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
-            output_video_path = os.path.join(work_dir, "subtitled_output.mkv")
+            sanitized_filename = DownloaderService.sanitize_filename(channel, title)
+            output_video_path = os.path.join(work_dir, sanitized_filename)
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
 
             poster_path = os.path.join(work_dir, "poster.jpg")
             thumb_file = open(poster_path, "rb") if os.path.exists(poster_path) else None
+
+            caption = (
+                "✅ <b>ویدیو با زیرنویس سافت‌ساب آماده شد!</b>\n\n"
+                f"{footer}"
+            )
 
             try:
                 # Always send clip output explicitly as document attachment (send_document / reply_document)
                 with open(output_video_path, "rb") as vid_file:
                     await query.message.reply_document(
                         document=vid_file,
-                        filename=os.path.basename(output_video_path),
-                        caption="✅ <b>ویدیو با زیرنویس سافت‌ساب آماده شد!</b>",
+                        filename=sanitized_filename,
+                        caption=caption,
                         thumbnail=thumb_file,
                         parse_mode="HTML"
                     )
@@ -537,20 +582,33 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 srt_content = f.read()
 
             translated_text = srt_to_alternating_text(srt_content)
+            full_text_message = (
+                f"📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی):</b>\n\n"
+                f"{translated_text}\n\n"
+                f"{footer}"
+            )
 
-            if len(translated_text) < 4000:
+            if len(full_text_message) < 4000:
                 await query.message.reply_text(
-                    f"📝 **متن ترجمه شده خط به خط (زبان اصلی / فارسی):**\n\n{translated_text}"
+                    full_text_message,
+                    parse_mode="HTML"
                 )
             else:
                 txt_file_path = os.path.join(work_dir, "translation.txt")
+                bot_username = context.bot.username or "bot"
+                plain_footer = (
+                    f"\n\n🎬 عنوان: {title}\n"
+                    f"📺 کانال: {channel}\n\n"
+                    f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
+                )
                 with open(txt_file_path, "w", encoding="utf-8") as tf:
-                    tf.write(translated_text)
+                    tf.write(translated_text + plain_footer)
                 with open(txt_file_path, "rb") as tf:
                     await query.message.reply_document(
                         document=tf,
                         filename="translation.txt",
-                        caption="📝 **متن ترجمه شده خط به خط (زبان اصلی / فارسی)**"
+                        caption=f"📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی)</b>\n\n{footer}",
+                        parse_mode="HTML"
                     )
 
         # Update status to done and clean up job directory
