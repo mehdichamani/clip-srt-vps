@@ -49,26 +49,61 @@ def clean_old_jobs():
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command."""
     welcome_text = (
-        "👋 **به ربات زیرنویس‌ساز خوش آمدید!**\n\n"
-        "لطفاً یک **ویدیو کوتاه**، **فایل صوتی**، **پیام صوتی** یا یک **لینک ویدیو** (یوتیوب، تیک‌تاک، توییتر، اینستاگرام و غیره) برای من ارسال کنید.\n\n"
-        "✨ **کارهایی که من انجام می‌دهم:**\n"
-        "۱. استخراج صدا و تبدیل گفتار به متن با **Groq Whisper (whisper-large-v3)**.\n"
-        "۲. ترجمه زیرنویس به فارسی روان با **Google Gemini (gemini-2.5-flash)** به صورت خط به خط متناوب (زبان اصلی / فارسی).\n"
-        "۳. امکان انتخاب دریافت ویدیو به صورت فایل با زیرنویس سافت‌ساب یا فقط متن ترجمه شده."
+        "👋 <b>به ربات زیرنویس‌ساز خوش آمدید!</b>\n\n"
+        "لطفاً یک <b>ویدیو کوتاه</b>، <b>فایل صوتی</b>، <b>پیام صوتی</b> یا یک <b>لینک ویدیو</b> (اینستاگرام، یوتیوب، تیک‌تاک، توییتر و ...) ارسال کنید.\n\n"
+        "✨ <b>امکانات ربات:</b>\n"
+        "۱. استخراج صدا و تبدیل گفتار به متن با <b>Groq Whisper (whisper-large-v3)</b>.\n"
+        "۲. ترجمه زیرنویس به فارسی روان با <b>Google Gemini (gemini-2.5-flash)</b> به صورت خط به خط متناوب.\n"
+        "۳. امکان انتخاب دریافت ویدیو به صورت فایل با زیرنویس سافت‌ساب یا فقط متن ترجمه شده.\n\n"
+        "📖 جهت مشاهده راهنما و فرمت‌های پشتیبانی شده: /help\n"
+        "ℹ️ درباره توسعه‌دهنده و پروژه: /about"
     )
     if update.message:
-        await update.message.reply_text(welcome_text, parse_mode="Markdown")
+        await update.message.reply_text(welcome_text, parse_mode="HTML")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /help command."""
+    """Handles the /help command with detailed input documentation."""
     help_text = (
-        "ℹ️ **راهنمای استفاده از ربات:**\n\n"
-        "• **ارسال فایل رسانه:** یک ویدیو، فایل صوتی یا ویس را در چت ارسال کنید (حداکثر ۲۰ مگابایت).\n"
-        "• **ارسال لینک:** لینک ویدیو از یوتیوب، توییتر، تیک‌تاک یا اینستاگرام را بفرستید.\n"
-        "• پس از اتمام پردازش و ترجمه، می‌توانید بین دریافت ویدیو با زیرنویس سافت‌ساب یا متن ترجمه شده یکی را انتخاب کنید."
+        "📖 <b>راهنمای جامع استفاده از ربات زیرنویس‌ساز</b>\n\n"
+        "📥 <b>ورودی‌های پشتیبانی شده:</b>\n\n"
+        "۱. <b>ارسال مستقیم فایل رسانه:</b>\n"
+        "• <b>ویدیوها:</b> MP4, MKV, MOV, AVI, WEBM, FLV, M4V (حداکثر ۲۰ مگابایت)\n"
+        "• <b>صوت و ویس:</b> MP3, WAV, AAC, M4A, FLAC, OGG, OPUS و ویس‌های تلگرام\n\n"
+        "۲. <b>ارسال لینک رسانه (بدون محدودیت حجم):</b>\n"
+        "• <b>اینستاگرام:</b> ریلمز (Reels)، پست‌ها و کلیپ‌های IGTV\n"
+        "• <b>یوتیوب:</b> ویدیوهای اصلی و یوتیوب شورتس (Shorts)\n"
+        "• <b>تیک‌تاک & توییتر (X):</b> کلیپ‌ها و ویدیوهای توییت شده\n"
+        "• <b>لینک مستقیم دانلود:</b> فایل‌های مستقیم .mp4 و .mp3\n\n"
+        "⚙️ <b>دستورات ربات:</b>\n"
+        "• /start - شروع به کار و معرفی اولیه\n"
+        "• /help - راهنمای جامع و فرمت‌های پشتیبانی شده\n"
+        "• /about - شناسنامه سازنده، سورس‌کد و تکنولوژی‌ها\n\n"
+        "🔄 <b>مراحل پردازش:</b>\n"
+        "۱. ارسال فایل یا لینک ⬅️ ۲. استخراج صدا و تبدیل گفتار به متن ⬅️ ۳. ترجمه فارسی خط به خط ⬅️ ۴. انتخاب خروجی (ویدیو زیرنویس‌دار یا متن ترجمه)."
     )
     if update.message:
-        await update.message.reply_text(help_text, parse_mode="Markdown")
+        await update.message.reply_text(help_text, parse_mode="HTML")
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /about command for developer branding and system specs."""
+    about_text = (
+        "👤 <b>درباره ربات و شناسنامه توسعه‌دهنده</b>\n\n"
+        "👨‍💻 <b>توسعه‌دهنده:</b> مهدی چمنی\n"
+        "📧 <b>ایمیل:</b> <code>mahdi.chamani20@gmail.com</code>\n"
+        "💬 <b>تلگرام:</b> <a href=\"https://t.me/mehdichamanni\">@mehdichamanni</a>\n\n"
+        "📦 <b>مخزن گیت‌هاب (GitHub):</b>\n"
+        "🔗 <a href=\"https://github.com/mehdichamani/clip-srt-vps\">github.com/mehdichamani/clip-srt-vps</a>\n\n"
+        "🛠 <b>تکنولوژی‌های استفاده شده (Tech Stack):</b>\n"
+        "• <b>دانلود رسانه:</b> yt-dlp & PTB API\n"
+        "• <b>پردازش رسانه:</b> FFmpeg (16kHz Audio Extraction & Soft Subtitle Remuxing)\n"
+        "• <b>تبدیل گفتار به متن (STT):</b> Groq Whisper API (whisper-large-v3) / OpenAI\n"
+        "• <b>ترجمه هوشمند:</b> Google Gemini API (gemini-2.5-flash) / Groq / OpenAI\n"
+        "• <b>سرور & وب‌هوک:</b> FastAPI + Uvicorn + python-telegram-bot\n\n"
+        "☁️ <b>میزبانی:</b> hosted by <a href=\"https://render.com\">render.com</a>"
+    )
+    if update.message:
+        await update.message.reply_text(about_text, parse_mode="HTML", disable_web_page_preview=True)
+
 
 async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, job_id: Optional[str] = None) -> None:
     """Core processor for video/audio attachments or media URLs."""
@@ -358,6 +393,7 @@ def create_telegram_application() -> Application:
     # Register Command, Message & Callback Handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(
         filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Document.ALL | filters.TEXT,

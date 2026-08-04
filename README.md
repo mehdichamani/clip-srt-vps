@@ -1,43 +1,98 @@
 # Clip SRT Bot v2 🎬📝
 
-A lightweight, cloud-native Python Telegram bot designed to run seamlessly on free hosting platforms (such as **Render Web Services**) without requiring Docker or local heavy machine-learning models.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![Docker](https://img.shields.io/badge/Docker-Supported-2496ED.svg)](https://www.docker.com/)
+[![Render](https://img.shields.io/badge/Render-Deploy-black.svg)](https://render.com/)
+[![Developer](https://img.shields.io/badge/Developer-Mehdi%20Chamani-orange.svg)](https://t.me/mehdichamanni)
+
+[English](#english) | [فارسی](#فارسی)
 
 ---
 
-## ✨ Features
+<a name="english"></a>
+## 🇬🇧 English Documentation
 
-- **Fast & Light Cloud Native Stack:** Uses cloud APIs for AI workloads, eliminating heavy local dependencies.
-- **Telegram Webhook Architecture:** Built with **FastAPI**, **Uvicorn**, and `python-telegram-bot` (v20+ async) with automatic webhook registration on startup.
-- **Fast Speech-to-Text (STT):** Uses official `groq` SDK calling `whisper-large-v3` with `verbose_json` for precise timestamps.
-- **Natural Persian Translation:** Uses official `google-genai` SDK calling `gemini-2.5-flash` to translate subtitles into fluent, natural spoken Persian while strictly preserving `.srt` timestamps.
-- **Fast Soft-Subtitle Embedding:** Uses FFmpeg to extract 16kHz mono audio and remux soft subtitles into video containers (`mov_text`) without slow re-encoding.
-- **Web & Attachment Downloads:** Supports direct video/audio uploads as well as web video URLs via `yt-dlp`.
+### 🌟 Overview & Key Features
 
----
+**clip-srt-vps** is a lightweight, cloud-native Telegram bot and web service built with Python, FastAPI, and `python-telegram-bot`. It leverages state-of-the-art AI APIs (Groq Whisper, Google Gemini, OpenAI) and FFmpeg to extract audio, generate precise subtitle transcriptions, translate subtitles into fluent line-by-line Persian, and soft-embed subtitles into video clips on the fly.
 
-## 🛠️ Architecture & Service Assignments
-
-| Component | Technology / Library | Purpose |
-| :--- | :--- | :--- |
-| **Web Server & Webhook** | FastAPI + Uvicorn + `python-telegram-bot` v20+ | Handles Telegram update webhook at `POST /webhook` |
-| **Downloader** | `yt-dlp` + PTB File Download API | Handles Telegram attachments and web links |
-| **Media Processing** | FFmpeg (subprocess) | Audio extraction (16kHz mono) & fast soft subtitle remuxing |
-| **Transcription (STT)** | Groq SDK (`groq.Groq`) - `whisper-large-v3` | Fast timestamped transcription |
-| **Translation** | Google GenAI SDK (`google.genai.Client`) - `gemini-2.5-flash` | Persian translation in valid `.srt` format |
+- **Cloud-Native AI Workloads:** Uses Groq Whisper (`whisper-large-v3`) for lightning-fast speech-to-text with word-level timestamps.
+- **Fluent Persian Translation:** Uses Google Gemini (`gemini-2.5-flash`) or OpenAI models for natural Persian translation while preserving `.srt` timing.
+- **Line-by-Line Subtitles:** Produces alternating original language / Persian translation subtitles.
+- **Fast Soft-Subtitle Embedding:** Soft-embeds subtitles into MP4/MOV containers via FFmpeg without full video re-encoding.
+- **Web Video Download Support:** Downloads videos directly from social media platforms using `yt-dlp`.
+- **Telegram Bot Webhook Integration:** Powered by FastAPI with automatic webhook setup on startup.
 
 ---
 
-## 🚀 Quick Deployment Guide (Render Web Service)
+### 📂 Supported Input Files & Link Formats
 
-### Step 1: Fork or Upload to GitHub
+#### Supported Media Upload Formats
+You can directly upload media files to the bot (up to the Telegram 20 MB API limit):
+- **Video Extensions:** `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.m4v`
+- **Audio & Voice Extensions:** `.mp3`, `.wav`, `.aac`, `.m4a`, `.flac`, `.ogg`, `.opus`, Telegram Voice messages (`.ogg`)
 
-Push this repository (or the `clip-srt-bot-v2` directory) to GitHub.
+#### Supported Social Media & URL Links
+Send video or audio URLs directly in chat for seamless processing without file size limits:
+- **Instagram:** Reels, Posts, IGTV clips
+- **YouTube:** YouTube Shorts, standard YouTube Videos
+- **TikTok:** Public video clips
+- **Twitter / X:** Video tweets
+- **Direct Web Links:** Any publicly downloadable `.mp4`, `.mp3`, `.mkv` direct file URLs
 
-### Step 2: Create a New Web Service on Render
+---
 
-1. Go to [Render Dashboard](https://dashboard.render.com/) and click **New +** -> **Web Service**.
-2. Connect your GitHub repository.
-3. Choose **Python 3** environment.
+### 🚀 Deployment Guide
+
+#### 1. Deployment via Docker
+
+```bash
+# Clone the repository
+git clone https://github.com/mehdichamani/clip-srt-vps.git
+cd clip-srt-vps
+
+# Build the Docker image
+docker build -t clip-srt-vps .
+
+# Run the container
+docker run -d \
+  --name clip-srt-bot \
+  -p 8000:8000 \
+  -e TELEGRAM_BOT_TOKEN="your_telegram_bot_token" \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  -e GEMINI_API_KEY="your_gemini_api_key" \
+  -e RENDER_EXTERNAL_URL="https://your-domain-or-ngrok.com" \
+  clip-srt-vps
+```
+
+#### 2. VPS Deployment (Ubuntu / Debian)
+
+```bash
+# Install system dependencies
+sudo apt-get update && sudo apt-get install -y ffmpeg python3-pip python3-venv git
+
+# Clone repository & setup venv
+git clone https://github.com/mehdichamani/clip-srt-vps.git
+cd clip-srt-vps
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env with your credentials
+
+# Run application with Uvicorn
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+#### 3. Render Web Service Deployment
+
+1. Create a new **Web Service** on [Render Dashboard](https://dashboard.render.com/).
+2. Connect repository `https://github.com/mehdichamani/clip-srt-vps`.
+3. Set Environment to **Python 3**.
 4. Set **Build Command**:
    ```bash
    apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt
@@ -47,73 +102,129 @@ Push this repository (or the `clip-srt-bot-v2` directory) to GitHub.
    uvicorn main:app --host 0.0.0.0 --port $PORT
    ```
 
-### Step 3: Configure Environment Variables
+---
 
-Add the following Environment Variables in Render:
+### 🔑 Environment Variables Reference
 
-| Key | Description | Example |
-| :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Token from Telegram [@BotFather](https://t.me/BotFather) | `123456789:ABCdef...` |
-| `GROQ_API_KEY` | Groq API Key from [Groq Console](https://console.groq.com/) | `gsk_...` |
-| `GEMINI_API_KEY` | Google Gemini API key from [Google AI Studio](https://aistudio.google.com/) | `AIzaSy...` |
-| `RENDER_EXTERNAL_URL` | Your Render public service URL (No trailing slash) | `https://clip-srt-bot-v2.onrender.com` |
-| `WEBHOOK_SECRET` | *(Optional)* Secret token for webhook authorization | `random_secret_str` |
-
-> **Note:** Upon deployment, the app will read `RENDER_EXTERNAL_URL` and automatically set the Telegram webhook on startup!
+| Variable | Required | Description | Example |
+| :--- | :---: | :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | **Yes** | Telegram Bot token from [@BotFather](https://t.me/BotFather) | `123456789:ABCdef...` |
+| `GROQ_API_KEY` | **Yes** | Groq API Key from [Groq Console](https://console.groq.com/) | `gsk_...` |
+| `GEMINI_API_KEY` | **Yes** | Google Gemini API key from [Google AI Studio](https://aistudio.google.com/) | `AIzaSy...` |
+| `OPENAI_API_KEY` | Optional | OpenAI API key (if using OpenAI services) | `sk-...` |
+| `RENDER_EXTERNAL_URL` | **Yes** | Public HTTPS domain URL for Webhook setup (No trailing slash) | `https://clip-srt-bot-v2.onrender.com` |
+| `WEBHOOK_SECRET` | Optional | Secret token for secure webhook authorization | `secret_token_123` |
+| `INSTAGRAM_COOKIES` | Optional | Netscape format cookies content or file path for Instagram `yt-dlp` auth | `cookies.txt` content |
+| `PORT` | Optional | Server listening port (Defaults to `8000`) | `8000` |
 
 ---
 
-## 💻 Local Development Setup
+### 👤 Developer & Repository Branding
 
-### 1. Clone & Install Dependencies
+- **Repository:** [mehdichamani/clip-srt-vps](https://github.com/mehdichamani/clip-srt-vps)
+- **Developer:** **Mehdi Chamani** (مهدی چمنی)
+- **Email:** `mahdi.chamani20@gmail.com`
+- **Telegram:** [@mehdichamanni](https://t.me/mehdichamanni)
+
+---
+
+<a name="فارسی"></a>
+## 🇮🇷 راهنمای فارسی (Persian Documentation)
+
+### 🌟 معرفی پروژه و امکانات
+
+**clip-srt-vps** یک ربات تلگرام و سرویس ابری سبک و هوشمند است که با زبان پایتون، فریم‌ورک FastAPI و کتابخانه `python-telegram-bot` توسعه یافته است. این ربات با بهره‌گیری از هوش مصنوعی Groq Whisper، Google Gemini و FFmpeg، صدا را استخراج کرده، زیرنویس دقیق را تولید می‌کند، آن را به فارسی روان ترجمه کرده و زیرنویس سافت‌ساب را روی ویدیو متصل می‌نماید.
+
+- **تبدیل گفتار به متن هوشمند:** استفاده از Groq Whisper (`whisper-large-v3`) برای استخراج متن و زمان‌بندی دقیق زیرنویس.
+- **ترجمه فارسی روان:** ترجمه خط به خط با Google Gemini (`gemini-2.5-flash`) با حفظ کامل زمان‌بندی فایل `.srt`.
+- **نمایش متناوب زیرنویس:** تولید زیرنویس دو زبانه (زبان اصلی / فارسی متناوب).
+- **الصاق سریع زیرنویس سافت‌ساب:** الصاق زیرنویس روی ویدیو با FFmpeg بدون افت کیفیت و رندر طولانی.
+- **دانلود از شبکه‌های اجتماعی:** پشتیبانی از دریافت ویدیو از لینک‌های مختلف با `yt-dlp`.
+- **معماری وب‌هوک:** پاسخ‌دهی سریع بر پایه FastAPI و ثبت خودکار Webhook.
+
+---
+
+### 📂 فرمت‌ها و لینک‌های پشتیبانی شده
+
+#### فایل‌های قابل ارسال مستقیم
+امکان ارسال مستقیم فایل به ربات (تا سقف محدودیت ۲۰ مگابایت تلگرام):
+- **فرمت‌های ویدیو:** `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.m4v`
+- **فرمت‌های صوتی و ویس:** `.mp3`, `.wav`, `.aac`, `.m4a`, `.flac`, `.ogg`, `.opus`, ویس‌های تلگرام
+
+#### لینک‌های پشتیبانی شده
+ارسال لینک ویدیو یا صوت بدون محدودیت حجم فایل:
+- **اینستاگرام:** ریلمز (Reels)، پست‌ها، و ویدیوهای IGTV
+- **یوتیوب:** ویدیوهای اصلی و یوتیوب شورتس (Shorts)
+- **تیک‌تاک:** کلیپ‌های ویدئویی تیک‌تاک
+- **توییتر / ایکس:** ویدیوهای پست شده در Twitter/X
+- **لینک‌های مستقیم:** تمامی لینک‌های مستقیم قابل دانلود با پسوند `.mp4` و `.mp3`
+
+---
+
+### 🚀 راهنمای استقرار و راه‌اندازی
+
+#### ۱. راه‌اندازی با داکر (Docker)
 
 ```bash
-cd clip-srt-bot-v2
+# دریافت مخزن
+git clone https://github.com/mehdichamani/clip-srt-vps.git
+cd clip-srt-vps
+
+# ساخت ایمیج داکر
+docker build -t clip-srt-vps .
+
+# اجرای کانتینر
+docker run -d \
+  --name clip-srt-bot \
+  -p 8000:8000 \
+  -e TELEGRAM_BOT_TOKEN="توکن_ربات_تلگرام" \
+  -e GROQ_API_KEY="کلید_گرواک" \
+  -e GEMINI_API_KEY="کلید_جمینای" \
+  -e RENDER_EXTERNAL_URL="https://your-domain.com" \
+  clip-srt-vps
+```
+
+#### ۲. راه‌اندازی روی سرور مجازی (VPS)
+
+```bash
+# نصب پیش‌نیازهای سیستم‌عامل
+sudo apt-get update && sudo apt-get install -y ffmpeg python3-pip python3-venv git
+
+# دریافت پروژه و فعال‌سازی محیط مجازی
+git clone https://github.com/mehdichamani/clip-srt-vps.git
+cd clip-srt-vps
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-```
 
-### 2. Set Up Environment Variables
-
-Copy `.env.example` to `.env` and fill in your API keys:
-
-```bash
+# تنظیم متغیرهای محیطی
 cp .env.example .env
+# ویرایش فایل .env و وارد کردن کلیدها
+
+# اجرای برنامه
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 3. Run Web Server
+#### ۳. استقرار روی Render.com
 
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-To test webhooks locally, use **ngrok**:
-
-```bash
-ngrok http 8000
-```
-Then set `RENDER_EXTERNAL_URL=https://<your-ngrok-subdomain>.ngrok-free.app` in `.env` and restart uvicorn.
+۱. وارد داشبورد [Render.com](https://dashboard.render.com/) شوید و یک **Web Service** جدید بسازید.
+۲. مخزن `https://github.com/mehdichamani/clip-srt-vps` را متصل کنید.
+۳. محیط اجرای برنامه را روی **Python 3** قرار دهید.
+۴. **دستور ساخت (Build Command):**
+   ```bash
+   apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt
+   ```
+۵. **دستور اجرا (Start Command):**
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port $PORT
+   ```
 
 ---
 
-## 🧪 Verification & Health Check
+### 👤 شناسنامه سازنده و مخزن
 
-Test server health by navigating to:
-```http
-GET http://localhost:8000/health
-```
-Output:
-```json
-{
-  "status": "healthy",
-  "service": "clip-srt-bot-v2",
-  "webhook_configured": true
-}
-```
-
----
-
-## 📜 License
-
-MIT License
+- **توسعه‌دهنده:** **مهدی چمنی**
+- **ایمیل:** `mahdi.chamani20@gmail.com`
+- **تلگرام:** [@mehdichamanni](https://t.me/mehdichamanni)
+- **مخزن گیت‌هاب:** [https://github.com/mehdichamani/clip-srt-vps](https://github.com/mehdichamani/clip-srt-vps)
+- **میزبانی شده در:** [Render.com](https://render.com)
