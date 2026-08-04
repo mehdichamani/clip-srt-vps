@@ -506,7 +506,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 return
 
             status_msg = await query.message.reply_text("🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
-            output_video_path = os.path.join(work_dir, "subtitled_output.mp4")
+            output_video_path = os.path.join(work_dir, "subtitled_output.mkv")
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
 
             poster_path = os.path.join(work_dir, "poster.jpg")
