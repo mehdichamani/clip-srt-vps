@@ -46,9 +46,9 @@ def format_segments_to_srt(segments: List[Union[Dict[str, Any], Any]]) -> str:
 def clean_srt_response(raw_text: str) -> str:
     """
     Removes markdown code fences (e.g. ```srt ... ``` or ``` ...) from raw LLM output
-    to return pure SRT text.
+    to return pure SRT text. Normalizes line endings to LF.
     """
-    text = raw_text.strip()
+    text = raw_text.replace('\r\n', '\n').strip()
     # Match markdown code fences
     pattern = r"^```(?:srt|subtitles)?\s*\n?(.*?)\n?```$"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
@@ -66,7 +66,8 @@ def parse_srt_blocks(srt_content: str) -> List[Dict[str, str]]:
     [{'index': '1', 'time': '00:00:01,000 --> 00:00:04,000', 'text': '...'}]
     """
     blocks = []
-    raw_blocks = re.split(r'\n\s*\n', srt_content.strip())
+    normalized_content = srt_content.replace('\r\n', '\n').strip()
+    raw_blocks = re.split(r'\n\s*\n', normalized_content)
     for b in raw_blocks:
         lines = [line.strip() for line in b.strip().splitlines() if line.strip()]
         if not lines:

@@ -36,7 +36,7 @@ class STTService:
         def _do_transcribe():
             with open(audio_file_path, "rb") as audio_file:
                 return self.client.audio.transcriptions.create(
-                    file=(os.path.basename(audio_file_path), audio_file.read()),
+                    file=(os.path.basename(audio_file_path), audio_file),
                     model="whisper-large-v3",
                     response_format="verbose_json"
                 )

@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import shutil
@@ -8,6 +9,7 @@ import time
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -29,6 +31,7 @@ logger = logging.getLogger("clip_srt_bot")
 
 # Track active jobs to handle callback responses and retries
 active_jobs = {}
+MAX_TG_FILE_SIZE = 20 * 1024 * 1024  # 20 MB Telegram Bot API limit
 
 def clean_old_jobs():
     """Removes temporary directories for jobs older than 1 hour."""
@@ -60,7 +63,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Handles the /help command."""
     help_text = (
         "ℹ️ **راهنمای استفاده از ربات:**\n\n"
-        "• **ارسال فایل رسانه:** یک ویدیو، فایل صوتی یا ویس را در چت ارسال کنید.\n"
+        "• **ارسال فایل رسانه:** یک ویدیو، فایل صوتی یا ویس را در چت ارسال کنید (حداکثر ۲۰ مگابایت).\n"
         "• **ارسال لینک:** لینک ویدیو از یوتیوب، توییتر، تیک‌تاک یا اینستاگرام را بفرستید.\n"
         "• پس از اتمام پردازش و ترجمه، می‌توانید بین دریافت ویدیو با زیرنویس سافت‌ساب یا متن ترجمه شده یکی را انتخاب کنید."
     )
@@ -104,6 +107,18 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     try:
         # 1. Determine input source (Telegram File or Web URL)
         if message.video:
+            if message.video.file_size and message.video.file_size > MAX_TG_FILE_SIZE:
+                await status_msg.edit_text(
+                    "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
+                    "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
+                    "💡 <b>راهکار:</b> لطفاً <b>لینک مستقیم ویدیو</b> (از یوتیوب، اینستاگرام، تیک‌تاک و ...) را ارسال کنید تا بدون محدودیت پردازش شود.",
+                    parse_mode="HTML"
+                )
+                active_jobs.pop(job_id, None)
+                if os.path.exists(work_dir):
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                return
+
             is_video = True
             ext = ".mp4"
             input_path = os.path.join(work_dir, f"input{ext}")
@@ -111,6 +126,18 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await DownloaderService.download_telegram_file(context.bot, message.video.file_id, input_path)
 
         elif message.document and (message.document.mime_type or "").startswith(("video/", "audio/")):
+            if message.document.file_size and message.document.file_size > MAX_TG_FILE_SIZE:
+                await status_msg.edit_text(
+                    "⚠️ <b>حجم فایل بیش از ۲۰ مگابایت است:</b>\n\n"
+                    "به دلیل محدودیت‌های تلگرام، امکان دانلود مستقیم فایل‌های بالای ۲۰ مگابایت توسط ربات‌ها وجود ندارد.\n\n"
+                    "💡 <b>راهکار:</b> لطفاً <b>لینک مستقیم ویدیو</b> را ارسال کنید تا بدون محدودیت پردازش شود.",
+                    parse_mode="HTML"
+                )
+                active_jobs.pop(job_id, None)
+                if os.path.exists(work_dir):
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                return
+
             is_video = (message.document.mime_type or "").startswith("video/")
             ext = os.path.splitext(message.document.file_name or "media")[1] or (".mp4" if is_video else ".mp3")
             input_path = os.path.join(work_dir, f"input{ext}")
@@ -118,6 +145,17 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await DownloaderService.download_telegram_file(context.bot, message.document.file_id, input_path)
 
         elif message.audio or message.voice:
+            audio_obj = message.audio or message.voice
+            if audio_obj and audio_obj.file_size and audio_obj.file_size > MAX_TG_FILE_SIZE:
+                await status_msg.edit_text(
+                    "⚠️ <b>حجم فایل صوتی بیش از ۲۰ مگابایت است:</b>\nلطفاً لینک مستقیم فایل صوتی یا ویدیو را ارسال کنید.",
+                    parse_mode="HTML"
+                )
+                active_jobs.pop(job_id, None)
+                if os.path.exists(work_dir):
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                return
+
             is_video = False
             file_id = message.audio.file_id if message.audio else message.voice.file_id
             input_path = os.path.join(work_dir, "input.m4a" if message.voice else "input.mp3")
@@ -128,6 +166,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             url = DownloaderService.extract_url(message.text)
             if not url:
                 await status_msg.edit_text("💡 لطفاً یک ویدیو، فایل صوتی یا لینک معتبر ارسال کنید.")
+                active_jobs.pop(job_id, None)
                 if os.path.exists(work_dir):
                     shutil.rmtree(work_dir, ignore_errors=True)
                 return
@@ -137,6 +176,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         else:
             await status_msg.edit_text("❓ فرمت فایل پشتیبانی نمی‌شود. لطفاً ویدیو، صدا یا لینک ویدیو بفرستید.")
+            active_jobs.pop(job_id, None)
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
             return
@@ -184,16 +224,33 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             reply_markup=reply_markup
         )
 
+    except BadRequest as br_err:
+        logger.error(f"Telegram BadRequest in process_media_job: {br_err}")
+        err_msg = str(br_err)
+        if "file is too big" in err_msg.lower():
+            user_msg = (
+                "⚠️ <b>حجم فایل بیش از حد مجاز تلگرام است:</b>\n\n"
+                "تلگرام اجازه دانلود فایل‌های بالای ۲۰ مگابایت را به ربات‌ها نمی‌دهد.\n"
+                "💡 <b>راهکار:</b> لطفاً <b>لینک مستقیم ویدیو</b> را ارسال کنید."
+            )
+        else:
+            user_msg = f"❌ <b>خطای درخواست تلگرام:</b>\n<code>{html.escape(err_msg[:300])}</code>"
+        
+        await message.reply_text(user_msg, parse_mode="HTML")
+        if os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
+
     except Exception as e:
         logger.error(f"Error processing request: {e}", exc_info=True)
-        # Send a NEW message with error details and Retry button
+        # Send a NEW message with HTML-escaped error details and Retry button
         retry_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
         ])
+        safe_err = html.escape(str(e)[:300])
         await message.reply_text(
-            f"❌ **عملیات با خطا مواجه شد:**\n`{str(e)[:300]}`\n\nمی‌توانید با دکمه زیر مجدداً تلاش کنید:",
+            f"❌ <b>عملیات با خطا مواجه شد:</b>\n<code>{safe_err}</code>\n\nمی‌توانید با دکمه زیر مجدداً تلاش کنید:",
             reply_markup=retry_keyboard,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -284,10 +341,11 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         retry_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
         ])
+        safe_err = html.escape(str(e)[:300])
         await query.message.reply_text(
-            f"❌ **خطایی در پردازش و ارسال فایل رخ داد:**\n`{str(e)[:300]}`\n\nمی‌توانید مجدداً تلاش کنید:",
+            f"❌ <b>خطایی در پردازش و ارسال فایل رخ داد:</b>\n<code>{safe_err}</code>\n\nمی‌توانید مجدداً تلاش کنید:",
             reply_markup=retry_keyboard,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
 def create_telegram_application() -> Application:

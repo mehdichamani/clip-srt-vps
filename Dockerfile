@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1
+
 # Install system dependencies (FFmpeg required for audio extraction and subtitle remuxing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \

@@ -49,7 +49,8 @@ class MediaProcessor:
     async def embed_subtitles_soft(video_path: str, srt_path: str, output_video: str) -> str:
         """
         Fast remuxing of subtitles into video as soft subtitles (mov_text) without re-encoding video stream.
-        ffmpeg -i input.mp4 -i subtitle.srt -c copy -c:s mov_text output.mp4
+        Includes default track disposition (-disposition:s:0 default) and language metadata (-metadata:s:s:0 language=fas)
+        so media players and Telegram automatically select and render the subtitle track.
         """
         cmd = [
             "ffmpeg",
@@ -58,6 +59,8 @@ class MediaProcessor:
             "-i", srt_path,
             "-c", "copy",
             "-c:s", "mov_text",
+            "-disposition:s:0", "default",
+            "-metadata:s:s:0", "language=fas",
             output_video
         ]
         

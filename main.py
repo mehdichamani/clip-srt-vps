@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -27,10 +28,22 @@ async def lifespan(app: FastAPI):
     
     settings.validate_keys()
     
-    # Initialize Telegram Bot Application
+    # Initialize Telegram Bot Application with retry resilience
     ptb_app = create_telegram_application()
-    await ptb_app.initialize()
-    await ptb_app.start()
+    
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Initializing Telegram Application (attempt {attempt}/{max_retries})...")
+            await ptb_app.initialize()
+            await ptb_app.start()
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize Telegram Application on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                logger.critical("Maximum initialization retries reached. Raising exception.")
+                raise
+            await asyncio.sleep(2 * attempt)
 
     # Automatically set Telegram Webhook URL if RENDER_EXTERNAL_URL is provided
     if settings.render_external_url:
@@ -42,7 +55,17 @@ async def lifespan(app: FastAPI):
         if settings.webhook_secret:
             kwargs["secret_token"] = settings.webhook_secret
             
-        await ptb_app.bot.set_webhook(**kwargs)
+        for attempt in range(1, max_retries + 1):
+            try:
+                await ptb_app.bot.set_webhook(**kwargs)
+                logger.info("Telegram webhook URL set successfully.")
+                break
+            except Exception as e:
+                logger.warning(f"Attempt {attempt} to set Telegram webhook failed: {e}")
+                if attempt == max_retries:
+                    logger.error("Failed to set Telegram webhook after multiple attempts. Continuing startup.")
+                else:
+                    await asyncio.sleep(2 * attempt)
     else:
         logger.warning(
             "RENDER_EXTERNAL_URL is not configured. Telegram webhook URL was not auto-set. "
@@ -54,8 +77,11 @@ async def lifespan(app: FastAPI):
     # Clean shutdown
     logger.info("Shutting down Telegram Bot Application...")
     if ptb_app:
-        await ptb_app.stop()
-        await ptb_app.shutdown()
+        try:
+            await ptb_app.stop()
+            await ptb_app.shutdown()
+        except Exception as e:
+            logger.error(f"Error during Telegram bot shutdown: {e}")
     logger.info("Shutdown complete.")
 
 app = FastAPI(
@@ -66,7 +92,9 @@ app = FastAPI(
 )
 
 @app.get("/")
+@app.head("/")
 @app.get("/health")
+@app.head("/health")
 async def health_check():
     """Health check endpoint for Render service monitoring."""
     return {
@@ -87,13 +115,16 @@ async def telegram_webhook(
             detail="Telegram Application is not initialized."
         )
 
-    # Optional Webhook secret validation
-    if settings.webhook_secret and x_telegram_bot_api_secret_token != settings.webhook_secret:
-        logger.warning("Received webhook request with invalid secret token.")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid secret token"
-        )
+    # Webhook secret validation using constant-time comparison
+    if settings.webhook_secret:
+        if not x_telegram_bot_api_secret_token or not secrets.compare_digest(
+            x_telegram_bot_api_secret_token, settings.webhook_secret
+        ):
+            logger.warning("Received webhook request with invalid secret token.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid secret token"
+            )
 
     try:
         data = await request.json()
@@ -107,3 +138,4 @@ async def telegram_webhook(
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=settings.port, reload=True)
+
