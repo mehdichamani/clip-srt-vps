@@ -6,3 +6,4 @@ google-genai>=0.1.0
 yt-dlp>=2023.12.30
 python-dotenv>=1.0.0
 pydantic-settings>=2.0.0
+psycopg2-binary>=2.9.9

@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI):
     get_effective_admin_password()
     
     settings.validate_keys()
+
+    # Initialize JobTracker database persistence if DATABASE_URL is configured
+    job_tracker.init_db()
     
     # Initialize Telegram Bot Application with retry resilience
     ptb_app = create_telegram_application()
@@ -270,6 +273,10 @@ async def get_dashboard(
     has_active_processing = stats["pending_processing"] > 0
     pulse_indicator = '<span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping inline-block ml-1"></span>' if has_active_processing else ''
 
+    db_active = stats.get("db_active", False)
+    storage_subtext = "Persisted in PostgreSQL DB" if db_active else "Tracked in memory (max 100)"
+    storage_badge = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"><span class="w-2 h-2 rounded-full bg-indigo-400"></span>PostgreSQL DB</span>' if db_active else '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">In-Memory</span>'
+
     html_content = f"""<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -297,6 +304,7 @@ async def get_dashboard(
                 </div>
             </div>
             <div class="flex items-center space-x-4 text-xs text-slate-400">
+                {storage_badge}
                 <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                     System Active
@@ -320,7 +328,7 @@ async def get_dashboard(
                     <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">📊</div>
                 </div>
                 <div class="text-3xl font-extrabold text-white">{stats['total']}</div>
-                <div class="text-xs text-slate-500 mt-2">Tracked in memory (max 100)</div>
+                <div class="text-xs text-slate-500 mt-2">{storage_subtext}</div>
             </div>
 
             <!-- Completed -->

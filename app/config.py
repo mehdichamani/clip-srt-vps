@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     port: int = 8000
     instagram_cookies: Optional[str] = None
     admin_password: Optional[str] = None
+    database_url: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
