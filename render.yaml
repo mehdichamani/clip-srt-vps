@@ -1,7 +1,7 @@
 services:
   - type: web
     name: clip-srt-bot-v2
-    runtime: docker
+    env: docker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
@@ -15,3 +15,5 @@ services:
         sync: false
       - key: WEBHOOK_SECRET
         generateValue: true
+      - key: INSTAGRAM_COOKIES
+        sync: false
