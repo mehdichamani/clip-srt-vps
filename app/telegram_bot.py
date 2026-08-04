@@ -185,7 +185,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     clean_old_jobs()
 
     # Check API Key configuration
-    if not settings.groq_api_key or not settings.gemini_api_key:
+    if not settings.groq_api_key or not settings.get_gemini_api_keys():
         await update.message.reply_text(
             "⚠️ **خطای پیکربندی:** کلیدهای API برای Groq یا Gemini در سرور تنظیم نشده‌اند. لطفاً متغیرهای محیطی را بررسی کنید."
         )

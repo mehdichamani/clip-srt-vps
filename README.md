@@ -19,7 +19,7 @@
 **clip-srt-vps** is a lightweight, cloud-native Telegram bot and web service built with Python, FastAPI, and `python-telegram-bot`. It leverages state-of-the-art AI APIs (Groq Whisper, Google Gemini, OpenAI) and FFmpeg to extract audio, generate precise subtitle transcriptions, translate subtitles into fluent line-by-line Persian, and soft-embed subtitles into video clips on the fly.
 
 - **Cloud-Native AI Workloads:** Uses Groq Whisper (`whisper-large-v3`) for lightning-fast speech-to-text with word-level timestamps.
-- **Fluent Persian Translation:** Uses Google Gemini (`gemini-2.5-flash`) or OpenAI models for natural Persian translation while preserving `.srt` timing.
+- **Fluent Persian Translation:** Uses Google Gemini (`gemini-2.5-flash`) for natural Persian translation with automatic Round-Robin load balancing across multiple API keys while preserving `.srt` timing.
 - **Line-by-Line Subtitles:** Produces alternating original language / Persian translation subtitles.
 - **Fast Soft-Subtitle Embedding:** Soft-embeds subtitles into MP4/MOV containers via FFmpeg without full video re-encoding.
 - **Web Video Download Support:** Downloads videos directly from social media platforms using `yt-dlp`.
