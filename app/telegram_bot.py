@@ -51,7 +51,12 @@ def extract_input_desc(message) -> str:
     return "Unknown Input"
 
 
-async def get_message_footer(context: ContextTypes.DEFAULT_TYPE, title: str, channel: str) -> str:
+async def get_message_footer(
+    context: ContextTypes.DEFAULT_TYPE,
+    title: str = "",
+    channel: str = "",
+    subject: str = ""
+) -> str:
     """Generates the standardized Persian caption/message footer."""
     bot_username = context.bot.username
     if not bot_username:
@@ -61,12 +66,11 @@ async def get_message_footer(context: ContextTypes.DEFAULT_TYPE, title: str, cha
         except Exception:
             bot_username = "bot"
 
-    safe_title = html.escape(title or "Video")
-    safe_channel = html.escape(channel or "Unknown Channel")
+    safe_channel = html.escape(channel) if channel and channel != "Unknown Channel" else ""
+    channel_str = f" {safe_channel}" if safe_channel else ""
 
     return (
-        f"🎬 عنوان: {safe_title}\n"
-        f"📺 کانال: {safe_channel}\n\n"
+        f"📺 کانال:{channel_str}\n\n"
         f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
     )
 
@@ -534,8 +538,9 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     is_video = job_info['is_video']
     title = job_info.get('title', 'Video')
     channel = job_info.get('channel', 'Unknown Channel')
+    subject = job_info.get('subject', '')
 
-    footer = await get_message_footer(context, title, channel)
+    footer = await get_message_footer(context, title=title, channel=channel, subject=subject)
 
     try:
         job_tracker.update_job(job_id, status="processing")
@@ -552,10 +557,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             poster_path = os.path.join(work_dir, "poster.jpg")
             thumb_file = open(poster_path, "rb") if os.path.exists(poster_path) else None
 
-            caption = (
-                "✅ <b>ویدیو با زیرنویس سافت‌ساب آماده شد!</b>\n\n"
-                f"{footer}"
-            )
+            safe_subject = html.escape(subject) if subject else ""
+            caption = f"<b>{safe_subject}</b>\n\n{footer}" if safe_subject else footer
 
             try:
                 # Always send clip output explicitly as document attachment (send_document / reply_document)
@@ -582,8 +585,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 srt_content = f.read()
 
             translated_text = srt_to_alternating_text(srt_content)
+            safe_subject = html.escape(subject) if subject else ""
+            if safe_subject:
+                header = f"<b>{safe_subject}</b>\n\n"
+            else:
+                header = "📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی):</b>\n\n"
+
             full_text_message = (
-                f"📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی):</b>\n\n"
+                f"{header}"
                 f"{translated_text}\n\n"
                 f"{footer}"
             )
@@ -596,18 +605,21 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             else:
                 txt_file_path = os.path.join(work_dir, "translation.txt")
                 bot_username = context.bot.username or "bot"
+                safe_channel = channel if channel and channel != "Unknown Channel" else ""
+                channel_str = f" {safe_channel}" if safe_channel else ""
+                plain_header = f"{subject}\n\n" if subject else "📝 متن ترجمه شده خط به خط (زبان اصلی / فارسی):\n\n"
                 plain_footer = (
-                    f"\n\n🎬 عنوان: {title}\n"
-                    f"📺 کانال: {channel}\n\n"
+                    f"\n\n📺 کانال:{channel_str}\n\n"
                     f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
                 )
+                doc_caption = f"<b>{safe_subject}</b>\n\n{footer}" if safe_subject else footer
                 with open(txt_file_path, "w", encoding="utf-8") as tf:
-                    tf.write(translated_text + plain_footer)
+                    tf.write(plain_header + translated_text + plain_footer)
                 with open(txt_file_path, "rb") as tf:
                     await query.message.reply_document(
                         document=tf,
                         filename="translation.txt",
-                        caption=f"📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی)</b>\n\n{footer}",
+                        caption=doc_caption,
                         parse_mode="HTML"
                     )
 
