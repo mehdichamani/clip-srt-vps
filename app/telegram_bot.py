@@ -26,6 +26,7 @@ from app.services.media_processor import MediaProcessor
 from app.services.stt_service import STTService
 from app.services.translator import TranslationService
 from app.services.job_tracker import job_tracker
+from app.services.telegraph import TelegraphService
 from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text
 
 logger = logging.getLogger("clip_srt_bot")
@@ -653,21 +654,41 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     parse_mode="HTML"
                 )
             else:
-                txt_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".txt")
-                txt_file_path = os.path.join(work_dir, txt_filename)
                 bot_username = context.bot.username or "instazirnevisbot"
                 plain_footer = get_plain_footer(channel=channel, translate_method=translate_method, bot_username=bot_username)
-                plain_header = f"{subject}\n\n" if subject else "خلاصه ویدیو\n\n"
-                doc_caption = f"<b>{safe_subject}</b>\n\n{footer}"
-                with open(txt_file_path, "w", encoding="utf-8") as tf:
-                    tf.write(plain_header + translated_text + "\n\n" + plain_footer)
-                with open(txt_file_path, "rb") as tf:
-                    await query.message.reply_document(
-                        document=tf,
-                        filename=txt_filename,
-                        caption=doc_caption,
+                try:
+                    telegraph_url = await TelegraphService.create_page(
+                        title=subject or "خلاصه و زیرنویس",
+                        text_content=translated_text,
+                        author_name=f"@{bot_username}",
+                        footer_text=plain_footer
+                    )
+                    telegraph_msg = (
+                        f"<b>{safe_subject}</b>\n\n"
+                        f"📖 <b>متن کامل به صورت مقاله در تلگراف ایجاد شد:</b>\n"
+                        f"🔗 <a href=\"{telegraph_url}\">مشاهده مقاله در تلگراف (Instant View)</a>\n\n"
+                        f"{footer}"
+                    )
+                    await query.message.reply_text(
+                        telegraph_msg,
                         parse_mode="HTML"
                     )
+                    logger.info(f"Sent long text output via Telegraph ({telegraph_url})")
+                except Exception as te_err:
+                    logger.warning(f"Failed to create Telegraph page, falling back to TXT document: {te_err}")
+                    txt_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".txt")
+                    txt_file_path = os.path.join(work_dir, txt_filename)
+                    plain_header = f"{subject}\n\n" if subject else "خلاصه ویدیو\n\n"
+                    doc_caption = f"<b>{safe_subject}</b>\n\n{footer}"
+                    with open(txt_file_path, "w", encoding="utf-8") as tf:
+                        tf.write(plain_header + translated_text + "\n\n" + plain_footer)
+                    with open(txt_file_path, "rb") as tf:
+                        await query.message.reply_document(
+                            document=tf,
+                            filename=txt_filename,
+                            caption=doc_caption,
+                            parse_mode="HTML"
+                        )
 
         # Update status to done and clean up job directory
         job_tracker.update_job(job_id, status="done")
