@@ -124,6 +124,110 @@ app = FastAPI(
 )
 
 
+@app.get("/translation-help", response_class=HTMLResponse)
+async def get_translation_help():
+    """Renders a visual comparison guide modal between Google Translate and AI Translation."""
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>راهنمای انتخاب موتور ترجمه | Clip SRT Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <style>
+        body { font-family: 'Vazirmatn', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
+    <div class="bg-slate-900/90 border border-slate-800 backdrop-blur-xl p-6 sm:p-8 rounded-3xl max-w-2xl w-full shadow-2xl space-y-6">
+        <!-- Header -->
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-2xl mb-2">
+                🤖 VS 🌐
+            </div>
+            <h1 class="text-2xl font-bold text-white">مقایسه موتورهای ترجمه زیرنویس</h1>
+            <p class="text-slate-400 text-sm">تفاوت بین گوگل ترنسلیت و هوش مصنوعی را بررسی کنید تا بهترین گزینه را انتخاب کنید.</p>
+        </div>
+
+        <!-- Comparison Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Google Translate Card -->
+            <div class="bg-slate-950/70 border border-slate-800 p-5 rounded-2xl space-y-4 hover:border-sky-500/30 transition">
+                <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                    <span class="text-2xl">🌐</span>
+                    <div>
+                        <h2 class="font-bold text-sky-400 text-lg">گوگل ترنسلیت</h2>
+                        <span class="text-xs text-slate-400 font-mono">Google Translate API</span>
+                    </div>
+                </div>
+                <ul class="text-xs space-y-2.5 text-slate-300">
+                    <li class="flex items-start gap-2">
+                        <span class="text-emerald-400 font-bold">✓</span>
+                        <span><b>ترجمه ۱۰۰٪ کامل:</b> تمام خطوط بدون قطع شدن یا نیمه‌کاره ماندن ترجمه می‌شوند.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-emerald-400 font-bold">✓</span>
+                        <span><b>بدون توهم (Hallucination):</b> دقیقا همان متن ورودی ترجمه شده و کلمه‌ای اضافه یا کم نمی‌شود.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-emerald-400 font-bold">✓</span>
+                        <span><b>حفظ دقیق زمان‌بندی:</b> قالب SRT و زمان‌بندی‌ها ۱۰۰٪ دست‌نخورده باقی می‌مانند.</span>
+                    </li>
+                    <li class="flex items-start gap-2 text-slate-400">
+                        <span class="text-amber-400 font-bold">!</span>
+                        <span><b>لحن کلام:</b> ممکن است در برخی جملات عامیانه کمی کتابی باشد.</span>
+                    </li>
+                </ul>
+                <div class="bg-sky-500/10 border border-sky-500/20 text-sky-300 text-xs p-2.5 rounded-xl text-center font-medium">
+                    🎯 پیشنهادی برای کلیپ‌های طولانی و آموزشی
+                </div>
+            </div>
+
+            <!-- AI Model Card -->
+            <div class="bg-slate-950/70 border border-slate-800 p-5 rounded-2xl space-y-4 hover:border-purple-500/30 transition">
+                <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                    <span class="text-2xl">🧠</span>
+                    <div>
+                        <h2 class="font-bold text-purple-400 text-lg">هوش مصنوعی (AI)</h2>
+                        <span class="text-xs text-slate-400 font-mono">Groq / Gemini LLM</span>
+                    </div>
+                </div>
+                <ul class="text-xs space-y-2.5 text-slate-300">
+                    <li class="flex items-start gap-2">
+                        <span class="text-emerald-400 font-bold">✓</span>
+                        <span><b>ترجمه فوق‌العاده روان:</b> فهم اصطلاحات انگلیسی، شوخی‌ها و زبان عامیانه/کلاسی.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-emerald-400 font-bold">✓</span>
+                        <span><b>حس طبیعی:</b> مناسب‌تر برای دیالوگ‌های داستانی، فیلم و محتوای جذاب.</span>
+                    </li>
+                    <li class="flex items-start gap-2 text-slate-400">
+                        <span class="text-rose-400 font-bold">✕</span>
+                        <span><b>احتمال قطع شدن:</b> در متون بسیار طولانی ممکن است پاسخ نیمه‌کاره بماند.</span>
+                    </li>
+                    <li class="flex items-start gap-2 text-slate-400">
+                        <span class="text-amber-400 font-bold">!</span>
+                        <span><b>احتمال توهم:</b> گاهی توضیحات اضافی یا فرمت ناخواسته تولید می‌کند.</span>
+                    </li>
+                </ul>
+                <div class="bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs p-2.5 rounded-xl text-center font-medium">
+                    🎯 پیشنهادی برای کلیپ‌های کوتاه اینستاگرامی
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Footer -->
+        <div class="text-center pt-2 border-t border-slate-800 text-xs text-slate-500">
+            Clip SRT Bot v2 • جهت بازگشت، این صفحه را ببندید و در تلگرام گزینه مورد نظر را انتخاب کنید.
+        </div>
+    </div>
+</body>
+</html>"""
+    )
+
+
 @app.get("/")
 @app.head("/")
 @app.get("/health")
@@ -135,6 +239,7 @@ async def health_check():
         "service": "clip-srt-bot-v2",
         "webhook_configured": bool(settings.render_external_url)
     }
+
 
 
 @app.post("/webhook")

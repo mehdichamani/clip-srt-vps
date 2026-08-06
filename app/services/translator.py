@@ -9,8 +9,10 @@ try:
 except ImportError:
     genai = None
 
+from deep_translator import GoogleTranslator
+
 from app.config import settings
-from app.utils.srt import clean_srt_response
+from app.utils.srt import clean_srt_response, parse_srt_blocks
 
 logger = logging.getLogger("clip_srt_bot")
 
@@ -25,7 +27,7 @@ def mask_key(key: str) -> str:
 
 
 class TranslationService:
-    """Service for translating SRT subtitles into Persian using Groq API (openai/gpt-oss-120b) with optional Gemini fallback."""
+    """Service for translating SRT subtitles into Persian using Google Translate or AI models (Groq/Gemini)."""
 
     _counter_lock = threading.Lock()
     _key_index = 0
@@ -44,15 +46,70 @@ class TranslationService:
             cls._key_index = (cls._key_index + 1) % len(keys)
             return key
 
-    async def translate_to_persian(self, srt_content: str) -> str:
+    async def translate_to_persian(self, srt_content: str, engine: str = "ai") -> str:
+        """
+        Translates input SRT content into Persian (Farsi).
+        
+        Args:
+            srt_content: Raw SRT subtitle content.
+            engine: "google" for Google Translate, or "ai" for Groq AI (with Gemini fallback).
+        """
+        if not srt_content.strip():
+            raise ValueError("Input SRT content is empty.")
+
+        if engine == "google":
+            return await self.translate_with_google(srt_content)
+        else:
+            return await self.translate_with_ai(srt_content)
+
+    async def translate_with_google(self, srt_content: str) -> str:
+        """
+        Translates SRT content to Persian block-by-block using Google Translate (deep-translator).
+        Preserves exact timestamps and indices while preventing hallucinations/truncation.
+        """
+        blocks = parse_srt_blocks(srt_content)
+        if not blocks:
+            raise ValueError("Failed to parse SRT blocks for Google Translation.")
+
+        logger.info(f"Translating {len(blocks)} subtitle blocks using Google Translate API...")
+
+        def _do_google_translate(blocks_list):
+            translator = GoogleTranslator(source="auto", target="fa")
+            texts = [b["text"] for b in blocks_list]
+            
+            # Batch translate in chunks of 50 to avoid request length limits
+            chunk_size = 50
+            translated_texts = []
+            for i in range(0, len(texts), chunk_size):
+                chunk = texts[i:i + chunk_size]
+                res = translator.translate_batch(chunk)
+                if isinstance(res, list):
+                    translated_texts.extend([str(t) if t else "" for t in res])
+                else:
+                    translated_texts.extend(chunk)
+
+            translated_blocks = []
+            for idx, b in enumerate(blocks_list):
+                trans_text = translated_texts[idx] if idx < len(translated_texts) else b["text"]
+                translated_blocks.append(
+                    f"{b['index']}\n{b['time']}\n{trans_text}\n"
+                )
+            return "\n".join(translated_blocks)
+
+        try:
+            result = await asyncio.to_thread(_do_google_translate, blocks)
+            logger.info("Persian subtitle translation completed successfully via Google Translate.")
+            return result
+        except Exception as e:
+            logger.error(f"Google Translate failed: {e}")
+            raise RuntimeError(f"Google Translate error: {e}")
+
+    async def translate_with_ai(self, srt_content: str) -> str:
         """
         Translates input SRT content into fluent Persian (Farsi) using Groq API (openai/gpt-oss-120b).
         Preserves exact timestamps and line numbering.
         Falls back to Gemini API if configured and Groq fails.
         """
-        if not srt_content.strip():
-            raise ValueError("Input SRT content is empty.")
-
         system_prompt = (
             "You are a professional subtitle translator.\n"
             "Translate the text in the SRT subtitle file into fluent, natural, and modern Persian (Farsi).\n\n"
@@ -130,3 +187,4 @@ class TranslationService:
             raise RuntimeError(f"Translation failed on both Groq and Gemini. Last Gemini error: {last_exception}")
 
         raise RuntimeError("No valid API Key (GROQ_API_KEY) configured for translation.")
+

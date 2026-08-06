@@ -386,39 +386,33 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         stt_service = STTService()
         english_srt = await stt_service.transcribe(audio_path)
 
-        # 4. Translation to Persian via Groq AI (settings.groq_translate_model)
-        await safe_update_status(status_msg, "🌐 در حال ترجمه زیرنویس به فارسی با هوش مصنوعی (Groq)...", reply_markup=cancel_kb, parse_mode="HTML")
-        translation_service = TranslationService()
-        persian_srt = await translation_service.translate_to_persian(english_srt)
-
-        # 5. Format into line-by-line alternating subtitles (Line 1: Original, Line 2: Persian)
-        bilingual_srt = merge_bilingual_srt(english_srt, persian_srt)
-
-        srt_file_path = os.path.join(work_dir, "subtitles_bilingual.srt")
-        with open(srt_file_path, "w", encoding="utf-8") as f:
-            f.write(bilingual_srt)
-
-        # Store job information for the callback query handler
+        # Store job information for the callback query handler (waiting for user choice)
         active_jobs[job_id].update({
             'is_video': is_video,
-            'srt_file_path': srt_file_path,
+            'english_srt': english_srt,
             'input_path': input_path,
             'title': title,
             'channel': channel,
             'timestamp': time.time()
         })
 
-        # Send completion options with format selection and Cancel button
+        help_url = f"{settings.render_external_url.rstrip('/')}/translation-help" if settings.render_external_url else "https://github.com/mehdichamani/clip-srt-vps"
+
+        # Send completion options with 4 format/engine choices, Help link, and Cancel button
         keyboard = [
-            [InlineKeyboardButton("📹 ویدیو با زیرنویس (Softsub)", callback_data=f"softsub_{job_id}")],
-            [InlineKeyboardButton("📄 فقط متن ترجمه (خط به خط)", callback_data=f"text_{job_id}")],
+            [InlineKeyboardButton("🎬 ویدیو با زیرنویس (گوگل ترنسلیت)", callback_data=f"opt_vid_gt_{job_id}")],
+            [InlineKeyboardButton("🎬 ویدیو با زیرنویس (هوش مصنوعی / AI)", callback_data=f"opt_vid_ai_{job_id}")],
+            [InlineKeyboardButton("📄 فقط متن ترجمه (گوگل ترنسلیت)", callback_data=f"opt_txt_gt_{job_id}")],
+            [InlineKeyboardButton("📄 فقط متن ترجمه (هوش مصنوعی / AI)", callback_data=f"opt_txt_ai_{job_id}")],
+            [InlineKeyboardButton("❓ راهنما و مقایسه تفاوت موتورها", url=help_url)],
             [InlineKeyboardButton("❌ لغو / حذف", callback_data=f"cancel_{job_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await safe_update_status(
             status_msg,
-            "✅ <b>ترجمه با موفقیت انجام شد.</b>\nلطفاً فرمت خروجی مورد نظر خود را انتخاب کنید:",
+            "🎙️ <b>تبدیل گفتار به متن با موفقیت انجام شد.</b>\n"
+            "لطفاً <b>فرمت خروجی</b> و <b>موتور ترجمه</b> مورد نظر خود را انتخاب کنید:",
             reply_markup=reply_markup,
             parse_mode="HTML"
         )
@@ -468,12 +462,13 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             shutil.rmtree(work_dir, ignore_errors=True)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles callback buttons: Retry, Cancel, and output format selection."""
+    """Handles callback buttons: Retry, Cancel, and output format/translation engine selection."""
     query = update.callback_query
     await query.answer()
 
     data = query.data
-    if not (data.startswith("softsub_") or data.startswith("text_") or data.startswith("retry_") or data.startswith("cancel_")):
+    valid_prefixes = ("opt_vid_gt_", "opt_vid_ai_", "opt_txt_gt_", "opt_txt_ai_", "softsub_", "text_", "retry_", "cancel_")
+    if not any(data.startswith(prefix) for prefix in valid_prefixes):
         return
 
     # Handle Cancel action
@@ -525,15 +520,30 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         await process_media_job(orig_update, context, job_id=job_id)
         return
 
-    action, job_id = data.split("_", 1)
+    # Parse action and job_id
+    if data.startswith("softsub_"):
+        action, job_id = "opt_vid_ai", data[8:]
+    elif data.startswith("text_"):
+        action, job_id = "opt_txt_ai", data[5:]
+    elif data.startswith("opt_vid_gt_"):
+        action, job_id = "opt_vid_gt", data[11:]
+    elif data.startswith("opt_vid_ai_"):
+        action, job_id = "opt_vid_ai", data[11:]
+    elif data.startswith("opt_txt_gt_"):
+        action, job_id = "opt_txt_gt", data[11:]
+    elif data.startswith("opt_txt_ai_"):
+        action, job_id = "opt_txt_ai", data[11:]
+    else:
+        return
+
     job_info = active_jobs.get(job_id)
 
-    if not job_info or 'srt_file_path' not in job_info:
+    if not job_info or 'english_srt' not in job_info:
         await query.message.reply_text("❌ خطا: اطلاعات این درخواست دیگر در دسترس نیست (احتمالاً منقضی شده است). لطفاً فایل را دوباره ارسال کنید.")
         return
 
     work_dir = job_info['work_dir']
-    srt_file_path = job_info['srt_file_path']
+    english_srt = job_info['english_srt']
     input_path = job_info['input_path']
     is_video = job_info['is_video']
     title = job_info.get('title', 'Video')
@@ -544,12 +554,30 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         job_tracker.update_job(job_id, status="processing")
-        if action == "softsub":
-            if not is_video:
-                await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد.")
-                return
 
-            status_msg = await query.message.reply_text("🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
+        is_google = action in ("opt_vid_gt", "opt_txt_gt")
+        is_video_mode = action in ("opt_vid_gt", "opt_vid_ai")
+        engine = "google" if is_google else "ai"
+
+        if is_video_mode and not is_video:
+            await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد. لطفاً یکی از گزینه‌های متن را انتخاب کنید.")
+            return
+
+        engine_name = "گوگل ترنسلیت" if is_google else f"هوش مصنوعی ({settings.groq_translate_model})"
+        status_msg = await query.message.reply_text(f"🌐 در حال ترجمه زیرنویس به فارسی با {engine_name}...")
+
+        # Perform translation with selected engine
+        translation_service = TranslationService()
+        persian_srt = await translation_service.translate_to_persian(english_srt, engine=engine)
+
+        # Merge into line-by-line alternating SRT
+        bilingual_srt = merge_bilingual_srt(english_srt, persian_srt)
+        srt_file_path = os.path.join(work_dir, "subtitles_bilingual.srt")
+        with open(srt_file_path, "w", encoding="utf-8") as f:
+            f.write(bilingual_srt)
+
+        if is_video_mode:
+            await safe_update_status(status_msg, "🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
             sanitized_filename = DownloaderService.sanitize_filename(channel, title)
             output_video_path = os.path.join(work_dir, sanitized_filename)
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
@@ -580,11 +608,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             except Exception:
                 pass
 
-        elif action == "text":
-            with open(srt_file_path, "r", encoding="utf-8") as f:
-                srt_content = f.read()
-
-            translated_text = srt_to_alternating_text(srt_content)
+        else:
+            translated_text = srt_to_alternating_text(bilingual_srt)
             safe_subject = html.escape(subject) if subject else ""
             if safe_subject:
                 header = f"<b>{safe_subject}</b>\n\n"
