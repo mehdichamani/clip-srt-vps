@@ -416,6 +416,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         # 4. Generate Persian subject headline from first 10 text rows using AI
         translation_service = TranslationService()
         subject = await translation_service.generate_persian_subject(english_srt)
+        job_tracker.update_job(job_id, subject=subject)
 
         # Store job information for the callback query handler (waiting for user choice)
         active_jobs[job_id].update({

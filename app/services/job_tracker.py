@@ -58,8 +58,10 @@ class JobTracker:
                             error_message TEXT DEFAULT '',
                             timestamp DOUBLE PRECISION NOT NULL,
                             formatted_time VARCHAR(64) NOT NULL,
-                            updated_at DOUBLE PRECISION DEFAULT 0
+                            updated_at DOUBLE PRECISION DEFAULT 0,
+                            subject TEXT DEFAULT ''
                         );
+                        ALTER TABLE jobs ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT '';
                         CREATE INDEX IF NOT EXISTS idx_jobs_timestamp ON jobs(timestamp DESC);
                     """)
                 conn.commit()
@@ -93,7 +95,8 @@ class JobTracker:
         user_id: Any,
         username: str,
         input_url_or_file: str,
-        status: str = "pending"
+        status: str = "pending",
+        subject: str = ""
     ) -> Dict[str, Any]:
         """Creates and stores a new job entry in DB (if active) and in-memory cache."""
         now = time.time()
@@ -106,6 +109,7 @@ class JobTracker:
             "input_url_or_file": input_url_or_file or "N/A",
             "status": status,  # pending, processing, done, error, canceled
             "error_message": "",
+            "subject": subject or "",
             "timestamp": now,
             "formatted_time": iso_time,
             "updated_at": now,
@@ -125,13 +129,14 @@ class JobTracker:
                 with conn:
                     with conn.cursor() as cur:
                         cur.execute("""
-                            INSERT INTO jobs (job_id, user_id, username, input_url_or_file, status, error_message, timestamp, formatted_time, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            INSERT INTO jobs (job_id, user_id, username, input_url_or_file, status, error_message, subject, timestamp, formatted_time, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (job_id) DO UPDATE SET
                                 user_id = EXCLUDED.user_id,
                                 username = EXCLUDED.username,
                                 input_url_or_file = EXCLUDED.input_url_or_file,
                                 status = EXCLUDED.status,
+                                subject = EXCLUDED.subject,
                                 updated_at = EXCLUDED.updated_at;
                         """, (
                             job_record["job_id"],
@@ -140,6 +145,7 @@ class JobTracker:
                             job_record["input_url_or_file"],
                             job_record["status"],
                             job_record["error_message"],
+                            job_record["subject"],
                             job_record["timestamp"],
                             job_record["formatted_time"],
                             job_record["updated_at"],
@@ -156,7 +162,8 @@ class JobTracker:
         job_id: str,
         status: Optional[str] = None,
         error_message: Optional[str] = None,
-        input_url_or_file: Optional[str] = None
+        input_url_or_file: Optional[str] = None,
+        subject: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Updates an existing job record in DB (if active) and in-memory cache."""
         now = time.time()
@@ -171,6 +178,8 @@ class JobTracker:
                     job["error_message"] = error_message
                 if input_url_or_file is not None:
                     job["input_url_or_file"] = input_url_or_file
+                if subject is not None:
+                    job["subject"] = subject
                 job["updated_at"] = now
 
         # Update PostgreSQL if active
@@ -189,6 +198,9 @@ class JobTracker:
                 if input_url_or_file is not None:
                     updates.append("input_url_or_file = %s")
                     params.append(input_url_or_file)
+                if subject is not None:
+                    updates.append("subject = %s")
+                    params.append(subject)
 
                 params.append(job_id)
                 query = f"UPDATE jobs SET {', '.join(updates)} WHERE job_id = %s"
@@ -288,6 +300,39 @@ class JobTracker:
                 "failed": failed,
                 "db_active": False,
             }
+
+    def get_top_users(self, limit: int = 3) -> List[Dict[str, Any]]:
+        """Returns top users with the most request counts from DB or in-memory fallback."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT username, user_id, COUNT(*) as request_count
+                        FROM jobs
+                        GROUP BY username, user_id
+                        ORDER BY request_count DESC, username ASC
+                        LIMIT %s
+                    """, (limit,))
+                    rows = cur.fetchall()
+                    return [dict(r) for r in rows]
+            except Exception as e:
+                logger.error(f"Error fetching top users from PostgreSQL: {e}")
+            finally:
+                conn.close()
+
+        with self._lock:
+            user_counts: Dict[str, Dict[str, Any]] = {}
+            for j in self._jobs.values():
+                uid = j.get("user_id", "Unknown")
+                uname = j.get("username", "Unknown")
+                key = f"{uname}_{uid}"
+                if key not in user_counts:
+                    user_counts[key] = {"username": uname, "user_id": uid, "request_count": 0}
+                user_counts[key]["request_count"] += 1
+
+            sorted_users = sorted(user_counts.values(), key=lambda u: u["request_count"], reverse=True)
+            return sorted_users[:limit]
 
 
 # Global singleton instance of JobTracker

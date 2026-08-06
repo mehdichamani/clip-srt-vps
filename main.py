@@ -416,15 +416,48 @@ async def get_dashboard(
         )
 
     stats = job_tracker.get_stats()
+    top_users = job_tracker.get_top_users(3)
     jobs = job_tracker.get_jobs()
+
+    # Build Top 3 Users HTML
+    top_users_html = []
+    if not top_users:
+        top_users_html.append('<div class="text-xs text-slate-500 italic py-2">هنوز کاربری ثبت نشده است / No users recorded yet</div>')
+    else:
+        rank_badges = [
+            '<span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center font-bold text-xs">🥇</span>',
+            '<span class="w-6 h-6 rounded-full bg-slate-400/20 text-slate-300 border border-slate-400/30 flex items-center justify-center font-bold text-xs">🥈</span>',
+            '<span class="w-6 h-6 rounded-full bg-amber-700/20 text-amber-400 border border-amber-700/30 flex items-center justify-center font-bold text-xs">🥉</span>'
+        ]
+        for idx, u in enumerate(top_users):
+            badge = rank_badges[idx] if idx < len(rank_badges) else f'<span class="text-xs font-mono text-slate-500">#{idx+1}</span>'
+            uname = html.escape(str(u.get("username", "Unknown")))
+            uid = html.escape(str(u.get("user_id", "Unknown")))
+            cnt = u.get("request_count", 0)
+            top_users_html.append(f"""
+                <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition">
+                    <div class="flex items-center gap-3">
+                        {badge}
+                        <div>
+                            <div class="text-xs font-semibold text-slate-200">{uname}</div>
+                            <div class="text-[10px] text-slate-500 font-mono">ID: {uid}</div>
+                        </div>
+                    </div>
+                    <div class="inline-flex items-center gap-1 text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
+                        <span>{cnt}</span>
+                        <span class="text-[10px] text-indigo-300 font-normal">درخواست</span>
+                    </div>
+                </div>
+            """)
+    top_users_block = "".join(top_users_html)
 
     # Build Table Rows HTML
     table_rows = []
     if not jobs:
         table_rows.append("""
             <tr>
-                <td colspan="6" class="px-6 py-8 text-center text-slate-500 italic">
-                    No bot requests recorded yet. Incoming jobs will appear here in real-time.
+                <td colspan="7" class="px-6 py-10 text-center text-slate-500 italic">
+                    هنوز هیچ درخواستی ثبت نشده است. ورودی‌های جدید به صورت زنده ظاهر خواهند شد.
                 </td>
             </tr>
         """)
@@ -446,20 +479,44 @@ async def get_dashboard(
             user_id_esc = html.escape(str(job.get("user_id", "")))
             username_esc = html.escape(str(job.get("username", "")))
             input_esc = html.escape(str(job.get("input_url_or_file", "")))
+            subject_esc = html.escape(str(job.get("subject", "")))
             err_esc = html.escape(str(job.get("error_message", "")))
-            time_esc = html.escape(str(job.get("formatted_time", "")))
+            ts = job.get("timestamp", 0)
+            formatted_time = html.escape(str(job.get("formatted_time", "")))
+
+            search_data = html.escape(f"{job_id_esc} {username_esc} {user_id_esc} {input_esc} {subject_esc} {st} {err_esc}".lower())
+
+            js_input_copy = input_esc.replace("\\", "\\\\").replace("'", "\\'").replace('"', '&quot;')
+            js_subject_copy = subject_esc.replace("\\", "\\\\").replace("'", "\\'").replace('"', '&quot;')
+
+            subject_display = f"""
+                <div class="flex items-start justify-between gap-2">
+                    <span class="text-xs text-slate-200 font-medium break-all">{subject_esc or '<span class="text-slate-600 italic">-</span>'}</span>
+                    {f'<button onclick="copyText(\'{js_subject_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if subject_esc else ''}
+                </div>
+            """
+
+            input_display = f"""
+                <div class="flex items-start justify-between gap-2">
+                    <span class="text-xs text-slate-300 font-mono break-all">{input_esc}</span>
+                    {f'<button onclick="copyText(\'{js_input_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if input_esc and input_esc != 'N/A' else ''}
+                </div>
+            """
 
             table_rows.append(f"""
-                <tr class="hover:bg-slate-800/40 transition-colors">
-                    <td class="px-6 py-4 font-mono text-xs text-indigo-400 font-semibold">{job_id_esc}</td>
-                    <td class="px-6 py-4">
-                        <div class="font-medium text-slate-200">{username_esc}</div>
-                        <div class="text-xs text-slate-500 font-mono">ID: {user_id_esc}</div>
+                <tr class="job-row hover:bg-slate-800/40 transition-colors" data-search="{search_data}">
+                    <td class="px-5 py-4 font-mono text-xs text-indigo-400 font-semibold align-top">{job_id_esc}</td>
+                    <td class="px-5 py-4 align-top">
+                        <div class="font-medium text-slate-200 text-xs">{username_esc}</div>
+                        <div class="text-[11px] text-slate-500 font-mono">ID: {user_id_esc}</div>
                     </td>
-                    <td class="px-6 py-4 max-w-xs truncate" title="{input_esc}">{input_esc}</td>
-                    <td class="px-6 py-4">{badge}</td>
-                    <td class="px-6 py-4 max-w-xs text-xs text-rose-400 font-mono truncate" title="{err_esc}">{err_esc or '<span class="text-slate-600">-</span>'}</td>
-                    <td class="px-6 py-4 text-right text-xs text-slate-400 font-mono whitespace-nowrap">{time_esc}</td>
+                    <td class="px-5 py-4 align-top min-w-[200px]">{input_display}</td>
+                    <td class="px-5 py-4 align-top min-w-[180px]">{subject_display}</td>
+                    <td class="px-5 py-4 align-top whitespace-nowrap">{badge}</td>
+                    <td class="px-5 py-4 align-top max-w-xs text-xs text-rose-400 font-mono break-all">{err_esc or '<span class="text-slate-600">-</span>'}</td>
+                    <td class="px-5 py-4 align-top text-right text-xs text-slate-400 font-mono whitespace-nowrap">
+                        <span class="shamsi-time" data-timestamp="{ts}">{formatted_time}</span>
+                    </td>
                 </tr>
             """)
 
@@ -468,124 +525,223 @@ async def get_dashboard(
     pulse_indicator = '<span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping inline-block ml-1"></span>' if has_active_processing else ''
 
     db_active = stats.get("db_active", False)
-    storage_subtext = "Persisted in PostgreSQL DB" if db_active else "Tracked in memory (max 100)"
-    storage_badge = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"><span class="w-2 h-2 rounded-full bg-indigo-400"></span>PostgreSQL DB</span>' if db_active else '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">In-Memory</span>'
+    storage_subtext = "پایگاه داده PostgreSQL" if db_active else "حافظه موقت (حداکثر ۱۰۰ کار)"
+    storage_badge = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs"><span class="w-2 h-2 rounded-full bg-indigo-400"></span>PostgreSQL DB</span>' if db_active else '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-xs">In-Memory</span>'
 
     html_content = f"""<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="fa" dir="rtl" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="10">
-    <title>Clip SRT Bot - Operations Dashboard</title>
+    <meta http-equiv="refresh" content="15">
+    <title>داشبورد مدیریت | Clip SRT Bot v{settings.app_version}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
     <style>
-        body {{ font-family: 'Inter', sans-serif; }}
+        body {{ font-family: 'Vazirmatn', sans-serif; }}
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
     <!-- Header -->
-    <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+    <header class="border-b border-slate-800 bg-slate-900/70 backdrop-blur sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center space-x-3">
+            <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl font-bold">
                     🎬
                 </div>
                 <div>
-                    <h1 class="text-xl font-bold text-white tracking-tight">Clip SRT Bot — Dashboard</h1>
-                    <p class="text-xs text-slate-400">Live Bot Operations & Request Monitoring</p>
+                    <h1 class="text-lg sm:text-xl font-bold text-white tracking-tight">داشبورد پایش درخواست‌ها</h1>
+                    <p class="text-xs text-slate-400">Clip SRT Bot v{settings.app_version}</p>
                 </div>
             </div>
-            <div class="flex items-center space-x-4 text-xs text-slate-400">
+            <div class="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+                <span id="visitorTimezone" class="hidden sm:inline-flex items-center px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[11px]">...</span>
                 {storage_badge}
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    System Active
-                </span>
-                <span class="hidden sm:inline">Auto-refreshes every 10s</span>
-                <button onclick="window.location.reload()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition flex items-center gap-1.5 shadow-sm">
+                <button onclick="window.location.reload()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm text-xs">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                    Refresh
+                    بروزرسانی
                 </button>
             </div>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <!-- Summary Cards Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <!-- Total Requests -->
-            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg shadow-black/20">
-                <div class="flex items-center justify-between text-slate-400 mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider">Total Requests</span>
-                    <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">📊</div>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+        <!-- Top Cards Grid (Combined Stats Card + Top Users Card) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <!-- Card 1: Combined Summary Statistics Card -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl shadow-black/20 space-y-4 flex flex-col justify-between">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">📊</span>
+                        <h2 class="font-bold text-white text-base sm:text-lg">خلاصه آمار عملیات</h2>
+                    </div>
+                    <span class="text-[11px] text-slate-500 font-mono">{storage_subtext}</span>
                 </div>
-                <div class="text-3xl font-extrabold text-white">{stats['total']}</div>
-                <div class="text-xs text-slate-500 mt-2">{storage_subtext}</div>
+
+                <div class="grid grid-cols-2 gap-3 sm:gap-4">
+                    <!-- Total -->
+                    <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-2xl">
+                        <div class="text-[11px] text-slate-400 font-semibold mb-1">کل درخواست‌ها</div>
+                        <div class="text-2xl sm:text-3xl font-extrabold text-white">{stats['total']}</div>
+                    </div>
+                    <!-- Completed -->
+                    <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-2xl">
+                        <div class="text-[11px] text-slate-400 font-semibold mb-1">موفق (تکمیل شده)</div>
+                        <div class="text-2xl sm:text-3xl font-extrabold text-emerald-400">{stats['completed']}</div>
+                    </div>
+                    <!-- Pending / Processing -->
+                    <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-2xl">
+                        <div class="text-[11px] text-slate-400 font-semibold mb-1">در حال پردازش</div>
+                        <div class="text-2xl sm:text-3xl font-extrabold text-amber-400 flex items-center">
+                            {stats['pending_processing']} {pulse_indicator}
+                        </div>
+                    </div>
+                    <!-- Failed / Canceled -->
+                    <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-2xl">
+                        <div class="text-[11px] text-slate-400 font-semibold mb-1">ناموفق / لغو شده</div>
+                        <div class="text-2xl sm:text-3xl font-extrabold text-rose-400">{stats['failed']}</div>
+                    </div>
+                </div>
             </div>
 
-            <!-- Completed -->
-            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg shadow-black/20">
-                <div class="flex items-center justify-between text-slate-400 mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider">Completed</span>
-                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">✅</div>
+            <!-- Card 2: Top 3 Users Leaderboard Card -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl shadow-black/20 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">🏆</span>
+                        <h2 class="font-bold text-white text-base sm:text-lg">برترین کاربران (پردرخواست‌ترین‌ها)</h2>
+                    </div>
+                    <span class="text-[11px] bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono">Top 3</span>
                 </div>
-                <div class="text-3xl font-extrabold text-emerald-400">{stats['completed']}</div>
-                <div class="text-xs text-slate-500 mt-2">Successfully delivered</div>
-            </div>
 
-            <!-- Pending / Processing -->
-            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg shadow-black/20">
-                <div class="flex items-center justify-between text-slate-400 mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider">Pending / Processing</span>
-                    <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">⏳</div>
+                <div class="space-y-2.5">
+                    {top_users_block}
                 </div>
-                <div class="text-3xl font-extrabold text-amber-400 flex items-center">
-                    {stats['pending_processing']} {pulse_indicator}
-                </div>
-                <div class="text-xs text-slate-500 mt-2">Currently in pipeline</div>
-            </div>
-
-            <!-- Failed / Canceled -->
-            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg shadow-black/20">
-                <div class="flex items-center justify-between text-slate-400 mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider">Failed / Canceled</span>
-                    <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">❌</div>
-                </div>
-                <div class="text-3xl font-extrabold text-rose-400">{stats['failed']}</div>
-                <div class="text-xs text-slate-500 mt-2">Errors or user cancellations</div>
             </div>
         </div>
 
-        <!-- Data Table Section -->
-        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl shadow-black/30">
-            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40">
-                <h2 class="text-base font-semibold text-white flex items-center gap-2">
-                    <span>📋</span> Recent Request Log
-                </h2>
-                <span class="text-xs text-slate-400 font-mono">Total: {len(jobs)} requests</span>
+        <!-- Search & Request Table Section -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl shadow-black/30 space-y-0">
+            <!-- Search Header Bar -->
+            <div class="p-4 sm:p-5 border-b border-slate-800 bg-slate-900/40 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">📋</span>
+                    <h2 class="text-base font-bold text-white">جدول درخواست‌ها و وضعیت</h2>
+                </div>
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <div class="relative w-full sm:w-80">
+                        <input type="text" id="searchInput" oninput="filterJobs()" placeholder="🔍 جستجو در شناسه، کاربر، لینک، موضوع یا خطا..." class="w-full bg-slate-950 border border-slate-700/80 text-xs rounded-xl px-3.5 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition shadow-inner" />
+                    </div>
+                    <span id="searchCount" class="text-xs text-slate-400 font-mono whitespace-nowrap shrink-0">{len(jobs)} مورد</span>
+                </div>
             </div>
 
+            <!-- Responsive Table Container -->
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm text-slate-300">
-                    <thead class="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                <table class="w-full text-right text-xs text-slate-300">
+                    <thead class="bg-slate-950/90 text-xs font-semibold text-slate-400 border-b border-slate-800">
                         <tr>
-                            <th scope="col" class="px-6 py-3.5">Job ID</th>
-                            <th scope="col" class="px-6 py-3.5">User</th>
-                            <th scope="col" class="px-6 py-3.5">Input / Media</th>
-                            <th scope="col" class="px-6 py-3.5">Status</th>
-                            <th scope="col" class="px-6 py-3.5">Details / Error</th>
-                            <th scope="col" class="px-6 py-3.5 text-right">Timestamp</th>
+                            <th scope="col" class="px-5 py-3.5">شناسه کار (Job ID)</th>
+                            <th scope="col" class="px-5 py-3.5">کاربر</th>
+                            <th scope="col" class="px-5 py-3.5">ورودی / رسانه</th>
+                            <th scope="col" class="px-5 py-3.5">موضوع کلیپ</th>
+                            <th scope="col" class="px-5 py-3.5">وضعیت</th>
+                            <th scope="col" class="px-5 py-3.5">جزئیات / خطا</th>
+                            <th scope="col" class="px-5 py-3.5 text-left">زمان (شمسی)</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-800/60 bg-slate-900/20">
+                    <tbody id="jobsTableBody" class="divide-y divide-slate-800/60 bg-slate-900/20">
                         {rows_html}
                     </tbody>
                 </table>
             </div>
         </div>
     </main>
+
+    <!-- Client-side JavaScript for Copy, Real-Time Search, Timezone detection & Shamsi date formatting -->
+    <script>
+        function copyText(text, btn) {{
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {{
+                const oldText = btn.innerText;
+                btn.innerText = "✓ کپی شد";
+                btn.classList.add("bg-emerald-600", "text-white");
+                setTimeout(() => {{
+                    btn.innerText = oldText;
+                    btn.classList.remove("bg-emerald-600", "text-white");
+                }}, 1800);
+            }}).catch(err => {{
+                console.error("Failed to copy text: ", err);
+            }});
+        }}
+
+        function filterJobs() {{
+            const input = document.getElementById("searchInput").value.toLowerCase().trim();
+            const rows = document.querySelectorAll(".job-row");
+            let count = 0;
+
+            rows.forEach(row => {{
+                const searchStr = row.getAttribute("data-search") || "";
+                if (!input || searchStr.includes(input)) {{
+                    row.style.display = "";
+                    count++;
+                }} else {{
+                    row.style.display = "none";
+                }}
+            }});
+
+            const countElem = document.getElementById("searchCount");
+            if (countElem) {{
+                countElem.innerText = count + " مورد یافت شد";
+            }}
+        }}
+
+        function formatShamsiDate(ts) {{
+            if (!ts || ts <= 0) return "-";
+            const date = new Date(ts * 1000);
+            try {{
+                const formatter = new Intl.DateTimeFormat('fa-IR-u-ca-persian-u-nu-latn', {{
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                }});
+                const parts = formatter.formatToParts(date);
+                let year='', month='', day='', hour='', minute='', second='';
+                for (const p of parts) {{
+                    if (p.type === 'year') year = p.value;
+                    if (p.type === 'month') month = p.value;
+                    if (p.type === 'day') day = p.value;
+                    if (p.type === 'hour') hour = p.value;
+                    if (p.type === 'minute') minute = p.value;
+                    if (p.type === 'second') second = p.value;
+                }}
+                return `${{year}}-${{month}}-${{day}} ${{hour}}:${{minute}}:${{second}}`;
+            }} catch (e) {{
+                return date.toLocaleString('fa-IR');
+            }}
+        }}
+
+        document.addEventListener("DOMContentLoaded", function() {{
+            try {{
+                const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
+                const tzElem = document.getElementById("visitorTimezone");
+                if (tzElem) {{
+                    tzElem.innerText = "🌐 " + userTz;
+                }}
+            }} catch (e) {{}}
+
+            document.querySelectorAll(".shamsi-time").forEach(elem => {{
+                const ts = parseFloat(elem.getAttribute("data-timestamp"));
+                if (ts) {{
+                    elem.innerText = formatShamsiDate(ts);
+                }}
+            }});
+        }});
+    </script>
 </body>
 </html>"""
     return HTMLResponse(content=html_content)
