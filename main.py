@@ -117,9 +117,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Clip SRT Bot v2",
+    title="Clip SRT Bot",
     description="Cloud-native Telegram Bot for video subtitle generation and Persian translation",
-    version="2.0.0",
+    version=settings.app_version,
     lifespan=lifespan
 )
 
@@ -236,8 +236,97 @@ async def health_check():
     """Health check endpoint for Render service monitoring."""
     return {
         "status": "healthy",
-        "service": "clip-srt-bot-v2",
+        "version": settings.app_version,
+        "service": "clip-srt-bot",
         "webhook_configured": bool(settings.render_external_url)
+    }
+
+
+@app.get("/about", response_class=HTMLResponse)
+async def about_page():
+    """Renders the About page displaying project version, tech stack, and developer information."""
+    return HTMLResponse(
+        content=f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>درباره پروژه | Clip SRT Bot v{settings.app_version}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {{ font-family: 'Vazirmatn', sans-serif; }}
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
+    <div class="bg-slate-900/90 border border-slate-800 backdrop-blur-xl p-6 sm:p-8 rounded-3xl max-w-2xl w-full shadow-2xl space-y-6">
+        <!-- Header -->
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-3xl mb-1">
+                🎬
+            </div>
+            <h1 class="text-2xl font-bold text-white">Clip SRT Bot</h1>
+            <div class="inline-block bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold px-3 py-1 rounded-full">
+                نسخه Beta v{settings.app_version}
+            </div>
+        </div>
+
+        <!-- Info Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div class="bg-slate-800/50 border border-slate-700/50 p-4 rounded-2xl space-y-2">
+                <div class="text-xs text-slate-400 font-semibold">👨‍💻 توسعه‌دهنده</div>
+                <div class="text-white font-medium">مهدی چمنی</div>
+                <div class="text-xs text-slate-400">
+                    ایمیل: <code class="text-indigo-300">mahdi.chamani20@gmail.com</code>
+                </div>
+                <div class="text-xs text-slate-400">
+                    تلگرام: <a href="https://t.me/mehdichamanni" target="_blank" class="text-indigo-400 hover:underline">@mehdichamanni</a>
+                </div>
+            </div>
+
+            <div class="bg-slate-800/50 border border-slate-700/50 p-4 rounded-2xl space-y-2">
+                <div class="text-xs text-slate-400 font-semibold">📦 مخزن سورس‌کد</div>
+                <div class="text-white font-medium">گیت‌هاب (GitHub)</div>
+                <div class="text-xs">
+                    <a href="https://github.com/mehdichamani/clip-srt-vps" target="_blank" class="text-indigo-400 hover:underline break-all">
+                        github.com/mehdichamani/clip-srt-vps
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tech Stack -->
+        <div class="bg-slate-800/30 border border-slate-800 p-4 rounded-2xl space-y-3 text-sm">
+            <h2 class="font-bold text-slate-200">🛠 تکنولوژی‌ها و خدمات:</h2>
+            <ul class="space-y-1.5 text-xs text-slate-300">
+                <li>• <b>تبدیل گفتار به متن (STT):</b> Groq Whisper API (<code class="text-slate-400">whisper-large-v3</code>)</li>
+                <li>• <b>ترجمه هوشمند:</b> Groq AI (<code class="text-slate-400">{settings.groq_translate_model}</code>) / Google Gemini</li>
+                <li>• <b>پردازش ویدیو:</b> FFmpeg (استخراج صدا ۱۶kHz و چسباندن زیرنویس سافت‌ساب)</li>
+                <li>• <b>فریم‌ورک وب & وب‌هوک:</b> FastAPI + python-telegram-bot</li>
+                <li>• <b>میزبانی سرور:</b> Render.com Free Tier</li>
+            </ul>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center pt-2 border-t border-slate-800 text-xs text-slate-500">
+            Clip SRT Bot • v{settings.app_version} Beta
+        </div>
+    </div>
+</body>
+</html>"""
+    )
+
+
+@app.get("/api/about")
+async def api_about():
+    """JSON API endpoint for system about metadata."""
+    return {
+        "name": "Clip SRT Bot",
+        "version": settings.app_version,
+        "environment": "beta",
+        "developer": "Mehdi Chamani",
+        "repository": "https://github.com/mehdichamani/clip-srt-vps",
+        "hosting": "Render.com"
     }
 
 

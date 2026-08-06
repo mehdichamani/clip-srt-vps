@@ -188,7 +188,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /about command for developer branding and system specs."""
     about_text = (
-        "👤 <b>درباره ربات و شناسنامه توسعه‌دهنده</b>\n\n"
+        f"👤 <b>درباره ربات و شناسنامه توسعه‌دهنده (نسخه v{settings.app_version})</b>\n\n"
+        f"📌 <b>نسخه فعلی:</b> <code>v{settings.app_version}</code> (Beta)\n"
         "👨‍💻 <b>توسعه‌دهنده:</b> مهدی چمنی\n"
         "📧 <b>ایمیل:</b> <code>mahdi.chamani20@gmail.com</code>\n"
         "💬 <b>تلگرام:</b> <a href=\"https://t.me/mehdichamanni\">@mehdichamanni</a>\n\n"
