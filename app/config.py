@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 logger = logging.getLogger("clip_srt_bot")
 
 class Settings(BaseSettings):
-    app_version: str = "0.4.0"
+    app_version: str = "0.4.1"
     telegram_bot_token: str = ""
     groq_api_key: str = ""
     groq_translate_model: str = "openai/gpt-oss-120b"

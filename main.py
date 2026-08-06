@@ -489,17 +489,20 @@ async def get_dashboard(
             js_input_copy = input_esc.replace("\\", "\\\\").replace("'", "\\'").replace('"', '&quot;')
             js_subject_copy = subject_esc.replace("\\", "\\\\").replace("'", "\\'").replace('"', '&quot;')
 
+            subject_btn = f'<button onclick="copyText(\'{js_subject_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if subject_esc else ''
+            input_btn = f'<button onclick="copyText(\'{js_input_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if input_esc and input_esc != 'N/A' else ''
+
             subject_display = f"""
                 <div class="flex items-start justify-between gap-2">
                     <span class="text-xs text-slate-200 font-medium break-all">{subject_esc or '<span class="text-slate-600 italic">-</span>'}</span>
-                    {f'<button onclick="copyText(\'{js_subject_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if subject_esc else ''}
+                    {subject_btn}
                 </div>
             """
 
             input_display = f"""
                 <div class="flex items-start justify-between gap-2">
                     <span class="text-xs text-slate-300 font-mono break-all">{input_esc}</span>
-                    {f'<button onclick="copyText(\'{js_input_copy}\', this)" class="shrink-0 px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition">کپی</button>' if input_esc and input_esc != 'N/A' else ''}
+                    {input_btn}
                 </div>
             """
 
