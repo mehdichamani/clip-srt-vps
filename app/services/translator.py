@@ -188,3 +188,96 @@ class TranslationService:
 
         raise RuntimeError("No valid API Key (GROQ_API_KEY) configured for translation.")
 
+    async def generate_persian_subject(self, srt_content: str) -> str:
+        """
+        Analyzes the first 10 text blocks of input SRT content and generates a short Persian subject/headline.
+        Uses Groq AI with fallback to Gemini.
+        """
+        if not srt_content.strip():
+            return "خلاصه ویدیو"
+
+        blocks = parse_srt_blocks(srt_content)
+        if not blocks:
+            return "خلاصه ویدیو"
+
+        first_10_texts = [b["text"].strip() for b in blocks[:10] if b.get("text")]
+        if not first_10_texts:
+            return "خلاصه ویدیو"
+
+        sample_text = "\n".join(first_10_texts)
+
+        system_prompt = (
+            "You are an expert Persian copywriter and content strategist.\n"
+            "Analyze the following transcript excerpt (the first spoken lines) and summarize the core subject/topic into a short, attractive, engaging headline in Persian (Farsi).\n\n"
+            "STRICT INSTRUCTIONS:\n"
+            "1. Output ONLY the Persian title (3 to 7 words max).\n"
+            "2. Do NOT use markdown, emojis, quotes, prefixes, intros, or explanations.\n"
+            "3. Ensure the subject is fluent and grammatically correct Persian."
+        )
+        user_prompt = f"TRANSCRIPT EXCERPT:\n{sample_text}"
+
+        groq_key = self.explicit_key or settings.groq_api_key
+        model_name = settings.groq_translate_model or "openai/gpt-oss-120b"
+
+        def _clean_subject(text: str) -> str:
+            cleaned = text.strip().strip('"\'`').replace('\n', ' ')
+            if cleaned.startswith("موضوع:"):
+                cleaned = cleaned[6:].strip()
+            elif cleaned.startswith("عنوان:"):
+                cleaned = cleaned[6:].strip()
+            return cleaned or "خلاصه ویدیو"
+
+        if groq_key:
+            masked = mask_key(groq_key)
+            logger.info(f"Generating Persian subject via Groq API ({model_name})...")
+
+            def _do_groq_subject(key: str):
+                client = Groq(api_key=key)
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.3,
+                )
+                return response.choices[0].message.content
+
+            try:
+                raw_response = await asyncio.to_thread(_do_groq_subject, groq_key)
+                if raw_response:
+                    subj = _clean_subject(raw_response)
+                    logger.info(f"Generated Persian subject via Groq: {subj}")
+                    return subj
+            except Exception as e:
+                logger.warning(f"Groq subject generation failed: {e}")
+
+        gemini_keys = settings.get_gemini_api_keys()
+        if gemini_keys and genai is not None:
+            max_attempts = len(gemini_keys)
+            for attempt in range(max_attempts):
+                api_key = self.get_next_gemini_api_key()
+                if not api_key:
+                    break
+
+                def _do_gemini_subject(key: str):
+                    client = genai.Client(api_key=key)
+                    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=full_prompt,
+                    )
+                    return response.text
+
+                try:
+                    raw_response = await asyncio.to_thread(_do_gemini_subject, api_key)
+                    if raw_response:
+                        subj = _clean_subject(raw_response)
+                        logger.info(f"Generated Persian subject via Gemini fallback: {subj}")
+                        return subj
+                except Exception as e:
+                    logger.warning(f"Gemini subject generation failed: {e}")
+
+        return "خلاصه ویدیو"
+
+

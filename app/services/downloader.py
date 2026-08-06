@@ -72,28 +72,38 @@ class DownloaderService:
     """Service to handle Telegram media downloads and web media downloads via yt-dlp."""
 
     @staticmethod
-    def sanitize_filename(channel: Optional[str], title: Optional[str]) -> str:
+    def sanitize_filename(channel: Optional[str] = None, title: Optional[str] = None, ext: str = ".mkv") -> str:
         r"""
-        Sanitizes channel and title into filename `{channel_name} - {video_title}.mkv`.
-        Strips illegal characters (/, \, :, *, ?, ", <, >, |) and limits total base name
-        length to ~100 characters max before appending .mkv.
+        Sanitizes channel and title into clean OS filename `{channel_name} - {title}{ext}` or `{title}{ext}`.
+        Strips illegal characters (/, \, :, *, ?, ", <, >, |) and limits total base name length to ~100 chars.
         """
-        ch_clean = (channel or "").strip() or "Unknown Channel"
-        ti_clean = (title or "").strip() or "Video"
+        ch_clean = (channel or "").strip()
+        ti_clean = (title or "").strip()
 
-        raw_name = f"{ch_clean} - {ti_clean}"
-        # Strip illegal characters: /, \, :, *, ?, ", <, >, |
+        if not ch_clean:
+            ch_clean = "Unknown Channel"
+        if not ti_clean:
+            ti_clean = "Video"
+
+        if channel is None and ti_clean != "Video":
+            raw_name = ti_clean
+        else:
+            raw_name = f"{ch_clean} - {ti_clean}"
+
+        # Strip illegal characters: /, \, :, *, ?, ", <, >, |, control characters
         sanitized = re.sub(r'[/\\:*?"<>|]', '', raw_name)
-        # Collapse multiple spaces into a single space and strip
         sanitized = re.sub(r'\s+', ' ', sanitized).strip()
         if not sanitized:
             sanitized = "Unknown Channel - Video"
 
-        # Limit total file name length to ~100 characters max before adding .mkv
+        # Limit total file name length to ~100 characters max
         if len(sanitized) > 100:
             sanitized = sanitized[:100].strip()
 
-        return f"{sanitized}.mkv"
+        if not ext.startswith("."):
+            ext = f".{ext}"
+
+        return f"{sanitized}{ext}"
 
     @staticmethod
     def extract_url(text: str) -> Optional[str]:

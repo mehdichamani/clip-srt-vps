@@ -51,27 +51,52 @@ def extract_input_desc(message) -> str:
     return "Unknown Input"
 
 
+def get_plain_footer(channel: str = "", translate_method: str = "هوش مصنوعی", bot_username: str = "instazirnevisbot") -> str:
+    safe_channel = (channel or "").strip()
+    if not safe_channel or safe_channel == "Unknown Channel":
+        channel_line = "از پیج نامشخص"
+    elif safe_channel.startswith("@"):
+        channel_line = f"از پیج {safe_channel}"
+    else:
+        if " " not in safe_channel:
+            channel_line = f"از پیج @{safe_channel}"
+        else:
+            channel_line = f"از پیج {safe_channel}"
+
+    return (
+        f"{channel_line}\n"
+        f"ترجمه شده با {translate_method} توسط ربات @{bot_username}"
+    )
+
+
 async def get_message_footer(
     context: ContextTypes.DEFAULT_TYPE,
-    title: str = "",
     channel: str = "",
-    subject: str = ""
+    translate_method: str = "هوش مصنوعی"
 ) -> str:
     """Generates the standardized Persian caption/message footer."""
     bot_username = context.bot.username
     if not bot_username:
         try:
             bot_info = await context.bot.get_me()
-            bot_username = bot_info.username or "bot"
+            bot_username = bot_info.username or "instazirnevisbot"
         except Exception:
-            bot_username = "bot"
+            bot_username = "instazirnevisbot"
 
-    safe_channel = html.escape(channel) if channel and channel != "Unknown Channel" else ""
-    channel_str = f" {safe_channel}" if safe_channel else ""
+    safe_channel = (channel or "").strip()
+    if not safe_channel or safe_channel == "Unknown Channel":
+        channel_line = "از پیج نامشخص"
+    elif safe_channel.startswith("@"):
+        channel_line = f"از پیج {html.escape(safe_channel)}"
+    else:
+        if " " not in safe_channel:
+            channel_line = f"از پیج @{html.escape(safe_channel)}"
+        else:
+            channel_line = f"از پیج {html.escape(safe_channel)}"
 
     return (
-        f"📺 کانال:{channel_str}\n\n"
-        f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
+        f"{channel_line}\n"
+        f"ترجمه شده با {translate_method} توسط ربات @{bot_username}"
     )
 
 
@@ -386,6 +411,10 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         stt_service = STTService()
         english_srt = await stt_service.transcribe(audio_path)
 
+        # 4. Generate Persian subject headline from first 10 text rows using AI
+        translation_service = TranslationService()
+        subject = await translation_service.generate_persian_subject(english_srt)
+
         # Store job information for the callback query handler (waiting for user choice)
         active_jobs[job_id].update({
             'is_video': is_video,
@@ -393,6 +422,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             'input_path': input_path,
             'title': title,
             'channel': channel,
+            'subject': subject,
             'timestamp': time.time()
         })
 
@@ -548,9 +578,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     is_video = job_info['is_video']
     title = job_info.get('title', 'Video')
     channel = job_info.get('channel', 'Unknown Channel')
-    subject = job_info.get('subject', '')
-
-    footer = await get_message_footer(context, title=title, channel=channel, subject=subject)
+    subject = job_info.get('subject', 'خلاصه ویدیو')
 
     try:
         job_tracker.update_job(job_id, status="processing")
@@ -558,6 +586,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         is_google = action in ("opt_vid_gt", "opt_txt_gt")
         is_video_mode = action in ("opt_vid_gt", "opt_vid_ai")
         engine = "google" if is_google else "ai"
+        translate_method = "مترجم گوگل" if is_google else "هوش مصنوعی"
 
         if is_video_mode and not is_video:
             await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد. لطفاً یکی از گزینه‌های متن را انتخاب کنید.")
@@ -576,17 +605,19 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         with open(srt_file_path, "w", encoding="utf-8") as f:
             f.write(bilingual_srt)
 
+        footer = await get_message_footer(context, channel=channel, translate_method=translate_method)
+        safe_subject = html.escape(subject) if subject else "خلاصه ویدیو"
+
         if is_video_mode:
             await safe_update_status(status_msg, "🎬 در حال ریماکس کردن زیرنویس سافت‌ساب روی ویدیو...")
-            sanitized_filename = DownloaderService.sanitize_filename(channel, title)
+            sanitized_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".mkv")
             output_video_path = os.path.join(work_dir, sanitized_filename)
             await MediaProcessor.embed_subtitles_soft(input_path, srt_file_path, output_video_path)
 
             poster_path = os.path.join(work_dir, "poster.jpg")
             thumb_file = open(poster_path, "rb") if os.path.exists(poster_path) else None
 
-            safe_subject = html.escape(subject) if subject else ""
-            caption = f"<b>{safe_subject}</b>\n\n{footer}" if safe_subject else footer
+            caption = f"<b>{safe_subject}</b>\n\n{footer}"
 
             try:
                 # Always send clip output explicitly as document attachment (send_document / reply_document)
@@ -610,14 +641,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
         else:
             translated_text = srt_to_alternating_text(bilingual_srt)
-            safe_subject = html.escape(subject) if subject else ""
-            if safe_subject:
-                header = f"<b>{safe_subject}</b>\n\n"
-            else:
-                header = "📝 <b>متن ترجمه شده خط به خط (زبان اصلی / فارسی):</b>\n\n"
-
             full_text_message = (
-                f"{header}"
+                f"<b>{safe_subject}</b>\n\n"
                 f"{translated_text}\n\n"
                 f"{footer}"
             )
@@ -628,22 +653,18 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     parse_mode="HTML"
                 )
             else:
-                txt_file_path = os.path.join(work_dir, "translation.txt")
-                bot_username = context.bot.username or "bot"
-                safe_channel = channel if channel and channel != "Unknown Channel" else ""
-                channel_str = f" {safe_channel}" if safe_channel else ""
-                plain_header = f"{subject}\n\n" if subject else "📝 متن ترجمه شده خط به خط (زبان اصلی / فارسی):\n\n"
-                plain_footer = (
-                    f"\n\n📺 کانال:{channel_str}\n\n"
-                    f"✍️ ترجمه و زیرنویس شده توسط @{bot_username}"
-                )
-                doc_caption = f"<b>{safe_subject}</b>\n\n{footer}" if safe_subject else footer
+                txt_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".txt")
+                txt_file_path = os.path.join(work_dir, txt_filename)
+                bot_username = context.bot.username or "instazirnevisbot"
+                plain_footer = get_plain_footer(channel=channel, translate_method=translate_method, bot_username=bot_username)
+                plain_header = f"{subject}\n\n" if subject else "خلاصه ویدیو\n\n"
+                doc_caption = f"<b>{safe_subject}</b>\n\n{footer}"
                 with open(txt_file_path, "w", encoding="utf-8") as tf:
-                    tf.write(plain_header + translated_text + plain_footer)
+                    tf.write(plain_header + translated_text + "\n\n" + plain_footer)
                 with open(txt_file_path, "rb") as tf:
                     await query.message.reply_document(
                         document=tf,
-                        filename="translation.txt",
+                        filename=txt_filename,
                         caption=doc_caption,
                         parse_mode="HTML"
                     )
