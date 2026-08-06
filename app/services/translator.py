@@ -25,7 +25,7 @@ def mask_key(key: str) -> str:
 
 
 class TranslationService:
-    """Service for translating SRT subtitles into Persian using Groq API (llama-3.3-70b-versatile) with optional Gemini fallback."""
+    """Service for translating SRT subtitles into Persian using Groq API (openai/gpt-oss-120b) with optional Gemini fallback."""
 
     _counter_lock = threading.Lock()
     _key_index = 0
@@ -46,7 +46,7 @@ class TranslationService:
 
     async def translate_to_persian(self, srt_content: str) -> str:
         """
-        Translates input SRT content into fluent Persian (Farsi) using Groq API (llama-3.3-70b-versatile).
+        Translates input SRT content into fluent Persian (Farsi) using Groq API (openai/gpt-oss-120b).
         Preserves exact timestamps and line numbering.
         Falls back to Gemini API if configured and Groq fails.
         """
@@ -67,14 +67,15 @@ class TranslationService:
 
         # 1. Primary: Try Groq API
         groq_key = self.explicit_key or settings.groq_api_key
+        model_name = settings.groq_translate_model or "openai/gpt-oss-120b"
         if groq_key:
             masked = mask_key(groq_key)
-            logger.info(f"Sending SRT content to Groq API (llama-3.3-70b-versatile) using key [{masked}]...")
+            logger.info(f"Sending SRT content to Groq API ({model_name}) using key [{masked}]...")
 
             def _do_groq_translate(key: str):
                 client = Groq(api_key=key)
                 response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model=model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},

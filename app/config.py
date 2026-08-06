@@ -8,6 +8,7 @@ logger = logging.getLogger("clip_srt_bot")
 class Settings(BaseSettings):
     telegram_bot_token: str = ""
     groq_api_key: str = ""
+    groq_translate_model: str = "openai/gpt-oss-120b"
     gemini_api_key: str = ""
     gemini_api_keys: str = ""
     render_external_url: str = ""

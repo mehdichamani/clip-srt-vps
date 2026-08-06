@@ -128,7 +128,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "لطفاً یک <b>ویدیو کوتاه</b>، <b>فایل صوتی</b>، <b>پیام صوتی</b> یا یک <b>لینک ویدیو</b> (اینستاگرام، یوتیوب، تیک‌تاک، توییتر و ...) ارسال کنید.\n\n"
         "✨ <b>امکانات ربات:</b>\n"
         "۱. استخراج صدا و تبدیل گفتار به متن با <b>Groq Whisper (whisper-large-v3)</b>.\n"
-        "۲. ترجمه زیرنویس به فارسی روان با <b>Groq AI (llama-3.3-70b-versatile)</b> به صورت خط به خط متناوب.\n"
+        f"۲. ترجمه زیرنویس به فارسی روان با <b>Groq AI ({settings.groq_translate_model})</b> به صورت خط به خط متناوب.\n"
         "۳. امکان انتخاب دریافت ویدیو به صورت فایل با زیرنویس سافت‌ساب یا فقط متن ترجمه شده.\n\n"
         "📖 جهت مشاهده راهنما و فرمت‌های پشتیبانی شده: /help\n"
         "ℹ️ درباره توسعه‌دهنده و پروژه: /about"
@@ -172,7 +172,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• <b>دانلود رسانه:</b> yt-dlp & PTB API\n"
         "• <b>پردازش رسانه:</b> FFmpeg (16kHz Audio Extraction & Soft Subtitle Remuxing)\n"
         "• <b>تبدیل گفتار به متن (STT):</b> Groq Whisper API (whisper-large-v3) / OpenAI\n"
-        "• <b>ترجمه هوشمند:</b> Groq AI (llama-3.3-70b-versatile) / Gemini / OpenAI\n"
+        f"• <b>ترجمه هوشمند:</b> Groq AI ({settings.groq_translate_model}) / Gemini / OpenAI\n"
         "• <b>سرور & وب‌هوک:</b> FastAPI + Uvicorn + python-telegram-bot\n\n"
         "☁️ <b>میزبانی:</b> hosted by <a href=\"https://render.com\">render.com</a>"
     )
@@ -386,7 +386,7 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         stt_service = STTService()
         english_srt = await stt_service.transcribe(audio_path)
 
-        # 4. Translation to Persian via Groq AI (llama-3.3-70b-versatile)
+        # 4. Translation to Persian via Groq AI (settings.groq_translate_model)
         await safe_update_status(status_msg, "🌐 در حال ترجمه زیرنویس به فارسی با هوش مصنوعی (Groq)...", reply_markup=cancel_kb, parse_mode="HTML")
         translation_service = TranslationService()
         persian_srt = await translation_service.translate_to_persian(english_srt)
