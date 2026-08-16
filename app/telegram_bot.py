@@ -22,7 +22,7 @@ from telegram.ext import (
 
 from app.config import settings
 from app.services.downloader import DownloaderService
-from app.services.media_processor import MediaProcessor
+from app.services.media_processor import MediaProcessor, NoAudioTrackError
 from app.services.stt_service import STTService
 from app.services.translator import TranslationService
 from app.services.job_tracker import job_tracker
@@ -475,6 +475,23 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             user_msg = f"❌ <b>خطای درخواست تلگرام:</b>\n<code>{html.escape(err_msg[:300])}</code>"
         
         await message.reply_text(user_msg, parse_mode="HTML")
+        if os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    except NoAudioTrackError as audio_err:
+        logger.warning(f"Job {job_id} failed due to missing audio track: {audio_err}")
+        job_tracker.update_job(job_id, status="error", error_message="No audio track found")
+        no_audio_msg = (
+            "⚠️ <b>ویدیوی ارسالی فاقد ترک صوتی (صدا) است:</b>\n\n"
+            "برای تبدیل گفتار به متن و ایجاد زیرنویس، فایل ارسالی باید دارای صدای قابل استخراج باشد.\n\n"
+            "💡 <b>نکات راهنما:</b>\n"
+            "• اگر ویدیو صامت، گیف، یا بدون ترک صداست، امکان رونویسی آن وجود ندارد.\n"
+            "• در صورت ارسال لینک آنلاین (اینستاگرام، یوتیوب، تیک‌تاک و ...)، مطمئن شوید ویدیو در مبدأ صدادار است و دسترسی به آن به دلیل کوکی یا محدودیت منطقه‌ای مسدود نشده باشد."
+        )
+        retry_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تلاش مجدد", callback_data=f"retry_{job_id}")]
+        ])
+        await message.reply_text(no_audio_msg, reply_markup=retry_keyboard, parse_mode="HTML")
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
 

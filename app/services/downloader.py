@@ -182,7 +182,7 @@ class DownloaderService:
         outtmpl = os.path.join(output_dir, "%(id)s.%(ext)s")
 
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
             'outtmpl': outtmpl,
             'noplaylist': True,
             'quiet': True,
