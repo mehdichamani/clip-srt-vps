@@ -25,6 +25,13 @@
 - **Web Video Download Support:** Downloads videos directly from social media platforms using `yt-dlp`.
 - **Telegram Bot Webhook Integration:** Powered by FastAPI with automatic webhook setup on startup.
 
+### 📸 Screenshots & Preview
+
+<p align="center">
+  <img src="screenshot-bot.png" alt="Telegram Bot Preview" width="48%" />
+  <img src="screenshot-web.png" alt="Web Dashboard Preview" width="48%" />
+</p>
+
 ---
 
 ### 📂 Supported Input Files & Link Formats
