@@ -137,3 +137,57 @@ def srt_to_alternating_text(srt_content: str) -> str:
             text_lines.append(line)
     return "\n".join(text_lines)
 
+
+def srt_time_to_lrc_time(srt_time: str) -> str:
+    """
+    Converts an SRT timestamp HH:MM:SS,mmm into standard LRC timestamp format [mm:ss.xx].
+    e.g. '00:01:23,456' -> '[01:23.46]'
+    """
+    srt_time = srt_time.strip()
+    match = re.search(r'(\d+):(\d+):(\d+)[,.](\d+)', srt_time)
+    if not match:
+        return "[00:00.00]"
+    hrs, mins, secs, ms_str = match.groups()
+    total_minutes = int(hrs) * 60 + int(mins)
+    seconds = int(secs)
+    # Convert milliseconds (up to 3 digits) to hundredths of a second (2 digits)
+    ms = int(ms_str[:3].ljust(3, '0'))
+    hundredths = int(round(ms / 10.0))
+    if hundredths >= 100:
+        hundredths = 99
+    return f"[{total_minutes:02d}:{seconds:02d}.{hundredths:02d}]"
+
+
+def srt_to_lrc(srt_content: str, title: str = "", artist: str = "") -> str:
+    """
+    Converts an SRT format string into standard timestamped LRC string compatible with
+    media players like Musicolet.
+    Each block start timestamp is formatted as [mm:ss.xx].
+    """
+    blocks = parse_srt_blocks(srt_content)
+    lrc_lines = []
+
+    if title:
+        lrc_lines.append(f"[ti:{title}]")
+    if artist:
+        lrc_lines.append(f"[ar:{artist}]")
+    lrc_lines.append("[by:Clip SRT Bot]")
+    lrc_lines.append("")
+
+    for b in blocks:
+        time_parts = b['time'].split('-->')
+        if not time_parts:
+            continue
+        start_srt_time = time_parts[0].strip()
+        lrc_tag = srt_time_to_lrc_time(start_srt_time)
+        
+        # In case of multiple lines (e.g. bilingual), keep them cleanly formatted
+        text_lines = [line.strip() for line in b['text'].splitlines() if line.strip()]
+        if not text_lines:
+            continue
+        for line in text_lines:
+            lrc_lines.append(f"{lrc_tag} {line}")
+
+    return "\n".join(lrc_lines).strip()
+
+

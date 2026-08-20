@@ -8,3 +8,4 @@ python-dotenv>=1.0.0
 pydantic-settings>=2.0.0
 psycopg2-binary>=2.9.9
 deep-translator>=1.11.4
+mutagen>=1.47.0

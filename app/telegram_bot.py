@@ -27,7 +27,7 @@ from app.services.stt_service import STTService
 from app.services.translator import TranslationService
 from app.services.job_tracker import job_tracker
 from app.services.telegraph import TelegraphService
-from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text
+from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text, srt_to_lrc
 
 logger = logging.getLogger("clip_srt_bot")
 
@@ -180,7 +180,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• /help - راهنمای جامع و فرمت‌های پشتیبانی شده\n"
         "• /about - شناسنامه سازنده، سورس‌کد و تکنولوژی‌ها\n\n"
         "🔄 <b>مراحل پردازش:</b>\n"
-        "۱. ارسال فایل یا لینک ⬅️ ۲. استخراج صدا و تبدیل گفتار به متن ⬅️ ۳. ترجمه فارسی خط به خط ⬅️ ۴. انتخاب خروجی (ویدیو زیرنویس‌دار یا متن ترجمه)."
+        "۱. ارسال فایل یا لینک ⬅️ ۲. استخراج صدا و تبدیل گفتار به متن ⬅️ ۳. ترجمه فارسی خط به خط ⬅️ ۴. انتخاب خروجی (ویدیو زیرنویس‌دار، صوت MP3 با لیریکس همگام Musicolet، یا متن ترجمه)."
     )
     if update.message:
         await update.message.reply_text(help_text, parse_mode="HTML")
@@ -197,7 +197,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🔗 <a href=\"https://github.com/mehdichamani/clip-srt-vps\">github.com/mehdichamani/clip-srt-vps</a>\n\n"
         "🛠 <b>تکنولوژی‌های استفاده شده (Tech Stack):</b>\n"
         "• <b>دانلود رسانه:</b> yt-dlp & PTB API\n"
-        "• <b>پردازش رسانه:</b> FFmpeg (16kHz Audio Extraction & Soft Subtitle Remuxing)\n"
+        "• <b>پردازش رسانه:</b> FFmpeg (16kHz Audio Extraction & Soft Subtitle Remuxing) + Mutagen (ID3 Synced LRC)\n"
         "• <b>تبدیل گفتار به متن (STT):</b> Groq Whisper API (whisper-large-v3) / OpenAI\n"
         f"• <b>ترجمه هوشمند:</b> Groq AI ({settings.groq_translate_model}) / Gemini / OpenAI\n"
         "• <b>سرور & وب‌هوک:</b> FastAPI + Uvicorn + python-telegram-bot\n\n"
@@ -431,10 +431,12 @@ async def process_media_job(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         help_url = f"{settings.render_external_url.rstrip('/')}/translation-help" if settings.render_external_url else "https://github.com/mehdichamani/clip-srt-vps"
 
-        # Send completion options with 4 format/engine choices, Help link, and Cancel button
+        # Send completion options with 6 format/engine choices, Help link, and Cancel button
         keyboard = [
             [InlineKeyboardButton("🎬 ویدیو با زیرنویس (گوگل ترنسلیت)", callback_data=f"opt_vid_gt_{job_id}")],
             [InlineKeyboardButton("🎬 ویدیو با زیرنویس (هوش مصنوعی / AI)", callback_data=f"opt_vid_ai_{job_id}")],
+            [InlineKeyboardButton("🎵 صوت MP3 با لیریکس همگام Musicolet (گوگل)", callback_data=f"opt_mp3_gt_{job_id}")],
+            [InlineKeyboardButton("🎵 صوت MP3 با لیریکس همگام Musicolet (هوش مصنوعی)", callback_data=f"opt_mp3_ai_{job_id}")],
             [InlineKeyboardButton("📄 فقط متن ترجمه (گوگل ترنسلیت)", callback_data=f"opt_txt_gt_{job_id}")],
             [InlineKeyboardButton("📄 فقط متن ترجمه (هوش مصنوعی / AI)", callback_data=f"opt_txt_ai_{job_id}")],
             [InlineKeyboardButton("❓ راهنما و مقایسه تفاوت موتورها", url=help_url)],
@@ -517,7 +519,12 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
 
     data = query.data
-    valid_prefixes = ("opt_vid_gt_", "opt_vid_ai_", "opt_txt_gt_", "opt_txt_ai_", "softsub_", "text_", "retry_", "cancel_")
+    valid_prefixes = (
+        "opt_vid_gt_", "opt_vid_ai_",
+        "opt_mp3_gt_", "opt_mp3_ai_",
+        "opt_txt_gt_", "opt_txt_ai_",
+        "softsub_", "text_", "retry_", "cancel_"
+    )
     if not any(data.startswith(prefix) for prefix in valid_prefixes):
         return
 
@@ -579,6 +586,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         action, job_id = "opt_vid_gt", data[11:]
     elif data.startswith("opt_vid_ai_"):
         action, job_id = "opt_vid_ai", data[11:]
+    elif data.startswith("opt_mp3_gt_"):
+        action, job_id = "opt_mp3_gt", data[11:]
+    elif data.startswith("opt_mp3_ai_"):
+        action, job_id = "opt_mp3_ai", data[11:]
     elif data.startswith("opt_txt_gt_"):
         action, job_id = "opt_txt_gt", data[11:]
     elif data.startswith("opt_txt_ai_"):
@@ -603,13 +614,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     try:
         job_tracker.update_job(job_id, status="processing")
 
-        is_google = action in ("opt_vid_gt", "opt_txt_gt")
+        is_google = action in ("opt_vid_gt", "opt_mp3_gt", "opt_txt_gt")
         is_video_mode = action in ("opt_vid_gt", "opt_vid_ai")
+        is_mp3_mode = action in ("opt_mp3_gt", "opt_mp3_ai")
         engine = "google" if is_google else "ai"
         translate_method = "مترجم گوگل" if is_google else "هوش مصنوعی"
 
         if is_video_mode and not is_video:
-            await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد. لطفاً یکی از گزینه‌های متن را انتخاب کنید.")
+            await query.message.reply_text("⚠️ این فایل ویدیو نیست و امکان قرار دادن زیرنویس روی آن وجود ندارد. لطفاً یکی از گزینه‌های صوت MP3 یا متن را انتخاب کنید.")
             return
 
         engine_name = "گوگل ترنسلیت" if is_google else f"هوش مصنوعی ({settings.groq_translate_model})"
@@ -650,6 +662,51 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                         parse_mode="HTML"
                     )
                 logger.info(f"Sent subtitled video clip as document attachment ({output_video_path})")
+            finally:
+                if thumb_file:
+                    thumb_file.close()
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+        elif is_mp3_mode:
+            await safe_update_status(status_msg, "🎵 در حال آماده‌سازی صوت MP3 با لیریکس همگام Musicolet...")
+            sanitized_mp3_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".mp3")
+            output_mp3_path = os.path.join(work_dir, sanitized_mp3_filename)
+            raw_audio_path = os.path.join(work_dir, "extracted_audio.mp3")
+
+            # Generate Musicolet-compatible timestamped LRC text
+            lrc_content = srt_to_lrc(bilingual_srt, title=subject or "Clip Audio", artist=channel or "Clip SRT Bot")
+            
+            poster_path = os.path.join(work_dir, "poster.jpg")
+            cover_path = poster_path if os.path.exists(poster_path) else None
+
+            await MediaProcessor.embed_lyrics_mp3(
+                audio_path=raw_audio_path,
+                lrc_content=lrc_content,
+                output_mp3_path=output_mp3_path,
+                title=subject or "Clip Audio",
+                artist=channel or "Clip SRT Bot",
+                cover_path=cover_path
+            )
+
+            thumb_file = open(cover_path, "rb") if cover_path else None
+            caption = f"🎵 <b>{safe_subject}</b>\n\n📝 <i>دارای متن ترانه همگام (Synced LRC Lyrics) سازگار با Musicolet</i>\n\n{footer}"
+
+            try:
+                with open(output_mp3_path, "rb") as mp3_file:
+                    await query.message.reply_audio(
+                        audio=mp3_file,
+                        filename=sanitized_mp3_filename,
+                        title=subject or "Clip Audio",
+                        performer=channel or "Clip SRT Bot",
+                        caption=caption,
+                        thumbnail=thumb_file,
+                        parse_mode="HTML"
+                    )
+                logger.info(f"Sent MP3 with Musicolet synced LRC lyrics ({output_mp3_path})")
             finally:
                 if thumb_file:
                     thumb_file.close()
@@ -708,6 +765,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                             caption=doc_caption,
                             parse_mode="HTML"
                         )
+
 
         # Update status to done and clean up job directory
         job_tracker.update_job(job_id, status="done")

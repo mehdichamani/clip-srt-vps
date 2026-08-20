@@ -19,9 +19,10 @@
 **clip-srt-vps** is a lightweight, cloud-native Telegram bot and web service built with Python, FastAPI, and `python-telegram-bot`. It leverages state-of-the-art AI APIs (Groq Whisper, Google Gemini, OpenAI) and FFmpeg to extract audio, generate precise subtitle transcriptions, translate subtitles into fluent line-by-line Persian, and soft-embed subtitles into video clips on the fly.
 
 - **Cloud-Native AI Workloads:** Uses Groq Whisper (`whisper-large-v3`) for lightning-fast speech-to-text with word-level timestamps.
-- **Fluent Persian Translation:** Uses Groq AI (`llama-3.3-70b-versatile`) for natural Persian translation with fallback to Google Gemini (`gemini-2.5-flash`), while preserving exact `.srt` timing.
+- **Fluent Persian Translation:** Uses Groq AI (`openai/gpt-oss-120b`) for natural Persian translation with fallback to Google Gemini, while preserving exact `.srt` timing.
 - **Line-by-Line Subtitles:** Produces alternating original language / Persian translation subtitles.
-- **Fast Soft-Subtitle Embedding:** Soft-embeds subtitles into MP4/MOV containers via FFmpeg without full video re-encoding.
+- **Fast Soft-Subtitle Embedding:** Soft-embeds subtitles into MKV containers via FFmpeg without full video re-encoding.
+- **MP3 with Synced LRC Lyrics (Musicolet Standard):** Exports tagged MP3 audio with timestamped ID3 `USLT` synced lyrics and cover art directly playable in Musicolet and advanced Android music players.
 - **Web Video Download Support:** Downloads videos directly from social media platforms using `yt-dlp`.
 - **Telegram Bot Webhook Integration:** Powered by FastAPI with automatic webhook setup on startup.
 
@@ -168,9 +169,10 @@ Add the following Environment Variables in your Render Web Service settings:
 **clip-srt-vps** یک ربات تلگرام و سرویس ابری سبک و هوشمند است که با زبان پایتون، فریم‌ورک FastAPI و کتابخانه `python-telegram-bot` توسعه یافته است. این ربات با بهره‌گیری از هوش مصنوعی Groq Whisper، Google Gemini و FFmpeg، صدا را استخراج کرده، زیرنویس دقیق را تولید می‌کند، آن را به فارسی روان ترجمه کرده و زیرنویس سافت‌ساب را روی ویدیو متصل می‌نماید.
 
 - **تبدیل گفتار به متن هوشمند:** استفاده از Groq Whisper (`whisper-large-v3`) برای استخراج متن و زمان‌بندی دقیق زیرنویس.
-- **ترجمه فارسی روان:** ترجمه خط به خط با Groq AI (`llama-3.3-70b-versatile`) و پشتیبانی از فال‌بک به Gemini با حفظ کامل زمان‌بندی فایل `.srt`.
+- **ترجمه فارسی روان:** ترجمه خط به خط با مدل هوش مصنوعی (`openai/gpt-oss-120b`) و مترجم گوگل با حفظ کامل زمان‌بندی فایل `.srt`.
 - **نمایش متناوب زیرنویس:** تولید زیرنویس دو زبانه (زبان اصلی / فارسی متناوب).
-- **الصاق سریع زیرنویس سافت‌ساب:** الصاق زیرنویس روی ویدیو با FFmpeg بدون افت کیفیت و رندر طولانی.
+- **الصاق سریع زیرنویس سافت‌ساب:** الصاق زیرنویس روی ویدیو با کانتینر MKV بدون افت کیفیت و رندر مجدد.
+- **خروجی صوت MP3 با لیریکس همگام زمانی (Musicolet LRC):** ساخت فایل صوتی MP3 با متادیتای استاندارد ID3 و تگ‌های `USLT` حاوی زمان‌بندی `[mm:ss.xx]` جهت پخش همگام و کارائوکه در اپلیکیشن موزیک‌پلیر Musicolet و سایر پلیرهای پیشرفته.
 - **دانلود از شبکه‌های اجتماعی:** پشتیبانی از دریافت ویدیو از لینک‌های مختلف با `yt-dlp`.
 - **معماری وب‌هوک:** پاسخ‌دهی سریع بر پایه FastAPI و ثبت خودکار Webhook.
 

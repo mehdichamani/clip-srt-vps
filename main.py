@@ -304,7 +304,7 @@ async def about_page():
             <ul class="space-y-1.5 text-xs text-slate-300">
                 <li>• <b>تبدیل گفتار به متن (STT):</b> Groq Whisper API (<code class="text-slate-400">whisper-large-v3</code>)</li>
                 <li>• <b>ترجمه هوشمند:</b> Groq AI (<code class="text-slate-400">{settings.groq_translate_model}</code>) / Google Gemini</li>
-                <li>• <b>پردازش ویدیو:</b> FFmpeg (استخراج صدا ۱۶kHz و چسباندن زیرنویس سافت‌ساب)</li>
+                <li>• <b>پردازش مدیا:</b> FFmpeg (استخراج صدا ۱۶kHz و چسباندن زیرنویس سافت‌ساب) + Mutagen (ID3v2 Synced LRC)</li>
                 <li>• <b>فریم‌ورک وب & وب‌هوک:</b> FastAPI + python-telegram-bot</li>
                 <li>• <b>میزبانی سرور:</b> Render.com Free Tier</li>
             </ul>

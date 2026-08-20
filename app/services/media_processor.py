@@ -129,5 +129,74 @@ class MediaProcessor:
         except FileNotFoundError:
             raise RuntimeError("FFmpeg executable not found in system PATH.")
 
+    @staticmethod
+    async def embed_lyrics_mp3(
+        audio_path: str,
+        lrc_content: str,
+        output_mp3_path: str,
+        title: str = "",
+        artist: str = "",
+        cover_path: Optional[str] = None
+    ) -> str:
+        """
+        Creates an MP3 file with embedded synchronized lyrics (LRC) and metadata
+        specifically formatted for media players like Musicolet.
+        Tags written:
+        - USLT (Unsynchronized lyrics frame containing timestamped [mm:ss.xx] lines for Musicolet)
+        - TXXX:LYRICS (Custom tag with full LRC content for extended player compatibility)
+        - TIT2 (Title)
+        - TPE1 (Artist/Channel)
+        - APIC (Attached picture/cover art if available)
+        """
+        import shutil
+        import mutagen
+        from mutagen.id3 import ID3, USLT, TIT2, TPE1, APIC, TXXX, ID3NoHeaderError
+
+        # Copy original audio to target path if different
+        if audio_path != output_mp3_path:
+            shutil.copyfile(audio_path, output_mp3_path)
+
+        def _tag_sync():
+            try:
+                tags = ID3(output_mp3_path)
+            except ID3NoHeaderError:
+                tags = ID3()
+
+            # Set Song Title & Artist
+            if title:
+                tags["TIT2"] = TIT2(encoding=3, text=title)
+            if artist:
+                tags["TPE1"] = TPE1(encoding=3, text=artist)
+
+            # Set USLT (Musicolet standard for reading timestamped lyrics in MP3)
+            # encoding=3 means UTF-8, lang='eng' or 'fas', desc=''
+            tags["USLT::eng"] = USLT(encoding=3, lang="eng", desc="", text=lrc_content)
+            tags["USLT::fas"] = USLT(encoding=3, lang="fas", desc="", text=lrc_content)
+
+            # Also set TXXX:LYRICS for additional player compatibility
+            tags["TXXX:LYRICS"] = TXXX(encoding=3, desc="LYRICS", text=lrc_content)
+
+            # Attach Cover Image if exists
+            if cover_path and os.path.exists(cover_path):
+                try:
+                    with open(cover_path, "rb") as alb:
+                        cover_data = alb.read()
+                    tags["APIC"] = APIC(
+                        encoding=3,
+                        mime="image/jpeg" if cover_path.lower().endswith((".jpg", ".jpeg")) else "image/png",
+                        type=3,  # Front cover
+                        desc="Cover",
+                        data=cover_data
+                    )
+                except Exception as img_err:
+                    logger.warning(f"Could not attach cover image to MP3: {img_err}")
+
+            tags.save(output_mp3_path, v2_version=3)
+            logger.info(f"Embedded synced LRC lyrics into MP3: {output_mp3_path}")
+
+        await asyncio.to_thread(_tag_sync)
+        return output_mp3_path
+
+
 
 
