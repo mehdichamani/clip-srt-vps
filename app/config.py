@@ -7,7 +7,7 @@ logger = logging.getLogger("clip_srt_bot")
 
 class Settings(BaseSettings):
     app_name: str = "Clip SRT Bot"
-    app_version: str = "0.4.3"
+    app_version: str = "0.4.4"
     telegram_bot_token: str = ""
     groq_api_key: str = ""
     groq_translate_model: str = "openai/gpt-oss-120b"
@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     webhook_secret: Optional[str] = None
     port: int = 8000
     instagram_cookies: Optional[str] = None
+    youtube_cookies: Optional[str] = None
+    cookies: Optional[str] = None
     admin_password: Optional[str] = None
     database_url: Optional[str] = None
 

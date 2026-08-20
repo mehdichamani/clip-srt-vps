@@ -28,4 +28,4 @@ Thumbs.db
 *.log
 tmp/
 temp/
-cookies.txt
+*cookies.txt

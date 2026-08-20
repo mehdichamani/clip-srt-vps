@@ -19,5 +19,9 @@ services:
         generateValue: true
       - key: INSTAGRAM_COOKIES
         sync: false
+      - key: YOUTUBE_COOKIES
+        sync: false
+      - key: COOKIES
+        sync: false
       - key: DATABASE_URL
         sync: false

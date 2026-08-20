@@ -115,10 +115,10 @@ Render supports deploying this repository directly using **Docker** runtime buil
 3. Connect your GitHub repository `https://github.com/mehdichamani/clip-srt-vps`.
 4. Select **Docker** as the Environment / Runtime (Render automatically detects `Dockerfile`).
 
-#### Step 2: Configure Instagram Cookies via Base64 Encoding
-Instagram requires cookie authentication for `yt-dlp` download requests. Because multiline `cookies.txt` files can be corrupted when pasted directly into cloud environment variables, **clip-srt-vps supports Base64-encoded cookie strings**.
+#### Step 2: Configure YouTube & Instagram Cookies via Base64 Encoding
+Platforms like YouTube and Instagram require cookie authentication for `yt-dlp` download requests. Because multiline `cookies.txt` files can be corrupted when pasted directly into cloud environment variables, **clip-srt-vps supports Base64-encoded cookie strings**.
 
-1. Generate a single-line Base64 string from your local `cookies.txt`:
+1. Generate a single-line Base64 string from your local `cookies.txt` or `combined_cookies.txt`:
    ```bash
    # On Linux / VPS:
    base64 -w 0 cookies.txt
@@ -131,8 +131,8 @@ Instagram requires cookie authentication for `yt-dlp` download requests. Because
    ```
 2. Copy the resulting Base64 string.
 3. In your Render Web Service dashboard, go to **Environment** -> **Add Environment Variable**.
-4. Set Key: `INSTAGRAM_COOKIES` and Value: `<your-base64-encoded-string>`.
-5. When the application runs, it automatically decodes the Base64 string back into a valid temporary Netscape cookie format for `yt-dlp`.
+4. Set Key: `YOUTUBE_COOKIES`, `INSTAGRAM_COOKIES`, or `COOKIES` and Value: `<your-base64-encoded-string>`.
+5. When the application runs, it automatically decodes and merges the cookies into a valid temporary Netscape cookie file for `yt-dlp`.
 
 #### Step 3: Add Required Environment Variables on Render
 Add the following Environment Variables in your Render Web Service settings:
@@ -144,7 +144,9 @@ Add the following Environment Variables in your Render Web Service settings:
 | `GEMINI_API_KEY` | Optional | Optional Google Gemini API key from [Google AI Studio](https://aistudio.google.com/) for fallback | `AIzaSy...` |
 | `RENDER_EXTERNAL_URL` | **Yes** | Public Render service HTTPS URL (No trailing slash) | `https://clip-srt-vps.onrender.com` |
 | `WEBHOOK_SECRET` | Optional | Secret token for secure webhook authorization | `random_secret_string` |
-| `INSTAGRAM_COOKIES` | Optional | Base64-encoded string of `cookies.txt` for Instagram downloads | `IyBOZXRzY2FwZSBDb29raWU...` |
+| `YOUTUBE_COOKIES` | Optional | Base64-encoded string of YouTube cookies for `yt-dlp` | `IyBOZXRzY2FwZSBDb29raWU...` |
+| `INSTAGRAM_COOKIES` | Optional | Base64-encoded string of Instagram cookies for `yt-dlp` | `IyBOZXRzY2FwZSBDb29raWU...` |
+| `COOKIES` | Optional | Base64-encoded string of combined Netscape cookies (`combined_cookies.txt`) | `IyBOZXRzY2FwZSBDb29raWU...` |
 | `PORT` | Optional | Listening port (Render automatically sets `$PORT`) | `8000` |
 
 ---
@@ -241,10 +243,10 @@ services:
 ۳. مخزن گیت‌هاب `https://github.com/mehdichamani/clip-srt-vps` را متصل کنید.
 ۴. نوع محیط اجرا (Runtime) را روی **Docker** قرار دهید (Render به صورت خودکار `Dockerfile` موجود در مخزن را شناسایی می‌کند).
 
-#### گام دوم: تنظیم کوکی‌های اینستاگرام با فرمت Base64
-دانلود از اینستاگرام نیازمند کوکی‌های معتبر جهت احراز هویت `yt-dlp` است. از آنجا که فرمت چندخطی فایل `cookies.txt` ممکن است در متغیرهای محیطی سرورهای ابری بهم بریزد، پروژه **clip-srt-vps** به طور کامل از فرمت **Base64** پشتیبانی می‌کند.
+#### گام دوم: تنظیم کوکی‌های یوتیوب و اینستاگرام با فرمت Base64
+دانلود از یوتیوب یا اینستاگرام ممکن است نیازمند کوکی‌های معتبر جهت احراز هویت `yt-dlp` باشد. از آنجا که فرمت چندخطی فایل `cookies.txt` ممکن است در متغیرهای محیطی سرورهای ابری بهم بریزد، پروژه **clip-srt-vps** به طور کامل از فرمت **Base64** پشتیبانی می‌کند.
 
-۱. تبدیل فایل `cookies.txt` به یک رشته تک‌خطی Base64:
+۱. تبدیل فایل `cookies.txt` یا `combined_cookies.txt` به یک رشته تک‌خطی Base64:
    ```bash
    # در لینوکس / VPS:
    base64 -w 0 cookies.txt
@@ -257,8 +259,8 @@ services:
    ```
 ۲. رشته Base64 خروجی را کپی کنید.
 ۳. در داشبورد Render، به بخش **Environment** -> **Add Environment Variable** بروید.
-۴. نام کلید را `INSTAGRAM_COOKIES` و مقدار آن را برابر با **رشته Base64 کپی‌شده** قرار دهید.
-۵. ربات هنگام اجرا به طور خودکار این رشته را رمزگشایی کرده و فایل کوکی موقت و معتبر ایجاد می‌کند.
+۴. نام کلید را `YOUTUBE_COOKIES` یا `INSTAGRAM_COOKIES` یا `COOKIES` و مقدار آن را برابر با **رشته Base64 کپی‌شده** قرار دهید.
+۵. ربات هنگام اجرا به طور خودکار این رشته‌ها را رمزگشایی کرده و فایل کوکی یکپارچه و معتبر ایجاد می‌کند.
 
 #### گام سوم: تنظیم متغیرهای محیطی در Render
 
@@ -269,7 +271,9 @@ services:
 | `GEMINI_API_KEY` | اختیاری | کلید API جمینای از Google AI Studio برای جایگزین موقت (Fallback) | `AIzaSy...` |
 | `RENDER_EXTERNAL_URL` | **بله** | آدرس عمومی HTTPS سرویس رندر برای ثبت وب‌هوک | `https://clip-srt-vps.onrender.com` |
 | `WEBHOOK_SECRET` | اختیاری | توکن امنیتی وب‌هوک جهت تایید درگاه | `random_secret_string` |
+| `YOUTUBE_COOKIES` | اختیاری | رشته Base64 شده فایل کوکی یوتیوب برای دانلود ویدیوها | `IyBOZXRzY2FwZSBDb29raWU...` |
 | `INSTAGRAM_COOKIES` | اختیاری | رشته Base64 شده فایل `cookies.txt` برای دانلود از اینستاگرام | `IyBOZXRzY2FwZSBDb29raWU...` |
+| `COOKIES` | اختیاری | رشته Base64 شده کوکی‌های ترکیبی Netscape برای تمام سرویس‌ها | `IyBOZXRzY2FwZSBDb29raWU...` |
 
 ---
 

@@ -45,23 +45,40 @@ def get_cookies_content(cookies_str: str) -> str:
 def _setup_cookie_file(ydl_opts: dict) -> Optional[str]:
     """Applies cookie configuration to ydl_opts and returns temp_cookie_path if created."""
     temp_cookie_path = None
+    
+    # Collect cookies from all configured environment variables
+    cookie_parts = []
+    if settings.cookies:
+        content = get_cookies_content(settings.cookies)
+        if content:
+            cookie_parts.append(content)
+    if settings.youtube_cookies:
+        content = get_cookies_content(settings.youtube_cookies)
+        if content:
+            cookie_parts.append(content)
     if settings.instagram_cookies:
+        content = get_cookies_content(settings.instagram_cookies)
+        if content:
+            cookie_parts.append(content)
+            
+    if cookie_parts:
         try:
-            cookie_content = get_cookies_content(settings.instagram_cookies)
-            if cookie_content:
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as f:
-                    f.write(cookie_content)
-                    temp_cookie_path = f.name
-                _temp_cookie_files.add(temp_cookie_path)
-                ydl_opts['cookiefile'] = temp_cookie_path
-                logger.info("Using temporary cookie file created from INSTAGRAM_COOKIES environment variable.")
+            combined_content = "\n".join(cookie_parts)
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as f:
+                f.write(combined_content)
+                temp_cookie_path = f.name
+            _temp_cookie_files.add(temp_cookie_path)
+            ydl_opts['cookiefile'] = temp_cookie_path
+            logger.info("Using temporary cookie file created from cookie environment variables.")
         except Exception as e:
             logger.error(f"Failed to create temporary cookie file: {e}")
     else:
-        local_cookies = 'cookies.txt'
-        if os.path.exists(local_cookies):
-            ydl_opts['cookiefile'] = local_cookies
-            logger.info("Using local cookies.txt file.")
+        # Fallback to local cookie files if present
+        for local_cookies in ['combined_cookies.txt', 'cookies.txt']:
+            if os.path.exists(local_cookies):
+                ydl_opts['cookiefile'] = local_cookies
+                logger.info(f"Using local {local_cookies} file.")
+                break
     return temp_cookie_path
 
 URL_REGEX = re.compile(
