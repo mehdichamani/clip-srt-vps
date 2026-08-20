@@ -15,6 +15,7 @@ from telegram import Update
 from app.config import settings
 from app.telegram_bot import create_telegram_application
 from app.services.job_tracker import job_tracker
+from app.services.cookie_manager import cookie_manager
 
 # Configure Structured Logging
 logging.basicConfig(
@@ -58,6 +59,8 @@ async def lifespan(app: FastAPI):
 
     # Initialize JobTracker database persistence if DATABASE_URL is configured
     job_tracker.init_db()
+    # Initialize CookieManager database persistence if DATABASE_URL is configured
+    cookie_manager.init_db()
     
     # Initialize Telegram Bot Application with retry resilience
     ptb_app = create_telegram_application()
@@ -365,6 +368,114 @@ async def telegram_webhook(
         return {"status": "error", "detail": str(e)}
 
 
+from pydantic import BaseModel
+
+class CookiePayload(BaseModel):
+    mode: str = "general"
+    general_cookies: Optional[str] = ""
+    youtube_cookies: Optional[str] = ""
+    instagram_cookies: Optional[str] = ""
+
+
+def verify_admin_auth(
+    key: Optional[str] = Query(None),
+    password: Optional[str] = Query(None),
+    credentials: Optional[HTTPBasicCredentials] = Depends(security)
+) -> bool:
+    """Helper to verify admin authentication across dashboard and API endpoints."""
+    expected_password = get_effective_admin_password()
+    provided_pass = key or password
+
+    if provided_pass and secrets.compare_digest(provided_pass, expected_password):
+        return True
+    if credentials and credentials.password and secrets.compare_digest(credentials.password, expected_password):
+        return True
+    return False
+
+
+@app.get("/api/cookies")
+async def get_cookies_api(
+    is_auth: bool = Depends(verify_admin_auth)
+):
+    """Returns stored cookies configuration and metadata (Admin only)."""
+    if not is_auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required to access cookies."
+        )
+    data = cookie_manager.get_cookies_data()
+    return {
+        "mode": data.get("mode", "general"),
+        "general_cookies": data.get("general_cookies", ""),
+        "youtube_cookies": data.get("youtube_cookies", ""),
+        "instagram_cookies": data.get("instagram_cookies", ""),
+        "general_count": cookie_manager.count_cookies(data.get("general_cookies", "")),
+        "youtube_count": cookie_manager.count_cookies(data.get("youtube_cookies", "")),
+        "instagram_count": cookie_manager.count_cookies(data.get("instagram_cookies", "")),
+        "updated_at": data.get("updated_at", 0)
+    }
+
+
+@app.post("/api/cookies")
+async def save_cookies_api(
+    payload: CookiePayload,
+    is_auth: bool = Depends(verify_admin_auth)
+):
+    """Saves or updates cookie configuration (Admin only)."""
+    if not is_auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required to update cookies."
+        )
+    updated = cookie_manager.save_cookies_data(
+        mode=payload.mode,
+        general_cookies=payload.general_cookies,
+        youtube_cookies=payload.youtube_cookies,
+        instagram_cookies=payload.instagram_cookies
+    )
+    return {
+        "status": "success",
+        "message": "کوکی‌ها با موفقیت ذخیره شدند.",
+        "data": {
+            "mode": updated.get("mode"),
+            "general_count": cookie_manager.count_cookies(updated.get("general_cookies", "")),
+            "youtube_count": cookie_manager.count_cookies(updated.get("youtube_cookies", "")),
+            "instagram_count": cookie_manager.count_cookies(updated.get("instagram_cookies", "")),
+            "updated_at": updated.get("updated_at")
+        }
+    }
+
+
+@app.delete("/api/cookies/{target}")
+async def clear_cookies_api(
+    target: str,
+    is_auth: bool = Depends(verify_admin_auth)
+):
+    """Clears cookies for a specific target: general, youtube, instagram, or all (Admin only)."""
+    if not is_auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required to clear cookies."
+        )
+    if target not in ("general", "youtube", "instagram", "all"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid clear target. Valid values: general, youtube, instagram, all"
+        )
+    updated = cookie_manager.clear_cookies(target=target)
+    return {
+        "status": "success",
+        "message": f"کوکی‌های بخش {target} پاک‌سازی شدند.",
+        "data": {
+            "mode": updated.get("mode"),
+            "general_count": cookie_manager.count_cookies(updated.get("general_cookies", "")),
+            "youtube_count": cookie_manager.count_cookies(updated.get("youtube_cookies", "")),
+            "instagram_count": cookie_manager.count_cookies(updated.get("instagram_cookies", "")),
+            "updated_at": updated.get("updated_at")
+        }
+    }
+
+
 @app.get("/admin")
 async def admin_redirect(key: Optional[str] = Query(None), password: Optional[str] = Query(None)):
     """Redirect /admin to /dashboard preserving query authentication parameters."""
@@ -381,17 +492,8 @@ async def get_dashboard(
     password: Optional[str] = Query(None),
     credentials: Optional[HTTPBasicCredentials] = Depends(security)
 ):
-    """Dashboard UI visualizing in-memory job operations and status logs."""
-    expected_password = get_effective_admin_password()
-    provided_pass = key or password
-
-    authenticated = False
-    if provided_pass and secrets.compare_digest(provided_pass, expected_password):
-        authenticated = True
-    elif credentials and credentials.password and secrets.compare_digest(credentials.password, expected_password):
-        authenticated = True
-
-    if not authenticated:
+    """Dashboard UI visualizing in-memory job operations, cookie management and status logs."""
+    if not verify_admin_auth(key=key, password=password, credentials=credentials):
         return HTMLResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             headers={"WWW-Authenticate": 'Basic realm="Dashboard Access"'},
@@ -418,6 +520,18 @@ async def get_dashboard(
     stats = job_tracker.get_stats()
     top_users = job_tracker.get_top_users(3)
     jobs = job_tracker.get_jobs()
+    cookies_data = cookie_manager.get_cookies_data()
+
+    # Cookie metadata
+    cookie_mode = cookies_data.get("mode", "general")
+    general_cookies_val = cookies_data.get("general_cookies", "")
+    youtube_cookies_val = cookies_data.get("youtube_cookies", "")
+    instagram_cookies_val = cookies_data.get("instagram_cookies", "")
+
+    gen_count = cookie_manager.count_cookies(general_cookies_val)
+    yt_count = cookie_manager.count_cookies(youtube_cookies_val)
+    ig_count = cookie_manager.count_cookies(instagram_cookies_val)
+    cookie_updated_ts = cookies_data.get("updated_at", 0)
 
     # Build Top 3 Users HTML
     top_users_html = []
@@ -531,17 +645,20 @@ async def get_dashboard(
     storage_subtext = "پایگاه داده PostgreSQL" if db_active else "حافظه موقت (حداکثر ۱۰۰ کار)"
     storage_badge = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs"><span class="w-2 h-2 rounded-full bg-indigo-400"></span>PostgreSQL DB</span>' if db_active else '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-xs">In-Memory</span>'
 
+    general_checked = 'checked' if cookie_mode == 'general' else ''
+    platform_checked = 'checked' if cookie_mode == 'platform' else ''
+
     html_content = f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="15">
     <title>داشبورد مدیریت | Clip SRT Bot v{settings.app_version}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
     <style>
         body {{ font-family: 'Vazirmatn', sans-serif; }}
+        .dropzone-active {{ border-color: #6366f1 !important; background-color: rgba(99, 102, 241, 0.1) !important; }}
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
@@ -553,7 +670,7 @@ async def get_dashboard(
                     🎬
                 </div>
                 <div>
-                    <h1 class="text-lg sm:text-xl font-bold text-white tracking-tight">داشبورد پایش درخواست‌ها</h1>
+                    <h1 class="text-lg sm:text-xl font-bold text-white tracking-tight">داشبورد مدیریت و پایش ربات</h1>
                     <p class="text-xs text-slate-400">Clip SRT Bot v{settings.app_version}</p>
                 </div>
             </div>
@@ -623,6 +740,131 @@ async def get_dashboard(
             </div>
         </div>
 
+        <!-- Card 3: Cookie Management System Card -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl shadow-black/20 space-y-5">
+            <div class="flex flex-wrap items-center justify-between border-b border-slate-800/80 pb-4 gap-3">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">🍪</span>
+                    <div>
+                        <h2 class="font-bold text-white text-base sm:text-lg">مدیریت کوکی‌ها (Cookie Management)</h2>
+                        <p class="text-xs text-slate-400">تنظیم کوکی‌های Netscape جهت دانلود بدون محدودیت از یوتیوب و اینستاگرام</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="cookieLastUpdated" class="text-xs font-mono text-slate-400" data-timestamp="{cookie_updated_ts}">
+                        آخرین بروزرسانی: <span class="shamsi-time" data-timestamp="{cookie_updated_ts}">-</span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Mode Selection Radio Buttons -->
+            <div class="flex flex-wrap items-center gap-4 bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80">
+                <span class="text-xs font-semibold text-slate-300">شیوه تنظیم کوکی:</span>
+                <label class="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-200">
+                    <input type="radio" name="cookieMode" value="general" onchange="toggleCookieMode('general')" {general_checked} class="w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-700">
+                    <span>حالت عمومی (یکپارچه / General)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-200">
+                    <input type="radio" name="cookieMode" value="platform" onchange="toggleCookieMode('platform')" {platform_checked} class="w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-700">
+                    <span>تفکیک بر اساس پلتفرم (YouTube و Instagram جداگانه)</span>
+                </label>
+            </div>
+
+            <!-- General Mode Input -->
+            <div id="generalCookieSection" class="space-y-3" style="display: {'block' if cookie_mode == 'general' else 'none'};">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-slate-300">متن کوکی عمومی (Netscape Cookies Format)</span>
+                        <span id="generalBadge" class="text-[11px] px-2 py-0.5 rounded-full {'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' if gen_count > 0 else 'bg-slate-800 text-slate-400'} font-mono">
+                            {gen_count} کوکی فعال
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="clearCookieField('general')" class="text-xs text-rose-400 hover:text-rose-300 transition">پاک‌سازی</button>
+                        <button onclick="exportCookieFile('general')" class="text-xs text-indigo-400 hover:text-indigo-300 transition">دانلود cookies.txt</button>
+                    </div>
+                </div>
+                <div class="relative border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-2xl p-2 transition dropzone" id="generalDropzone">
+                    <textarea id="generalCookiesText" rows="6" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	1750000000	SID	..." class="w-full bg-slate-950 text-slate-200 text-xs font-mono p-3 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y leading-relaxed">{html.escape(general_cookies_val)}</textarea>
+                    <div class="text-[10px] text-slate-500 mt-1 px-1 flex items-center justify-between">
+                        <span>💡 می‌توانید فایل <code class="text-indigo-300">cookies.txt</code> را مستقیماً درون کادر بالا بکشید و رها کنید (Drag & Drop).</span>
+                        <label class="cursor-pointer text-indigo-400 hover:underline">
+                            انتخاب فایل
+                            <input type="file" accept=".txt" class="hidden" onchange="handleFileSelect(event, 'generalCookiesText')">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Platform-Specific Mode Input (YouTube & Instagram) -->
+            <div id="platformCookieSection" class="grid grid-cols-1 md:grid-cols-2 gap-4" style="display: {'grid' if cookie_mode == 'platform' else 'none'};">
+                <!-- YouTube Box -->
+                <div class="space-y-2.5 bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">▶️</span>
+                            <span class="text-xs font-bold text-slate-200">کوکی‌های YouTube</span>
+                            <span id="youtubeBadge" class="text-[10px] px-2 py-0.5 rounded-full {'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' if yt_count > 0 else 'bg-slate-800 text-slate-400'} font-mono">
+                                {yt_count} کوکی
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="clearCookieField('youtube')" class="text-xs text-rose-400 hover:text-rose-300">پاک‌سازی</button>
+                            <button onclick="exportCookieFile('youtube')" class="text-xs text-indigo-400 hover:text-indigo-300">دانلود</button>
+                        </div>
+                    </div>
+                    <div class="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-xl p-1.5 transition dropzone" id="youtubeDropzone">
+                        <textarea id="youtubeCookiesText" rows="6" placeholder="# YouTube Cookies&#10;.youtube.com	TRUE	/	..." class="w-full bg-slate-950 text-slate-200 text-xs font-mono p-2.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y leading-relaxed">{html.escape(youtube_cookies_val)}</textarea>
+                        <div class="text-[10px] text-slate-500 mt-1 px-1 flex items-center justify-between">
+                            <span>Drop <code class="text-indigo-300">youtube_cookies.txt</code></span>
+                            <label class="cursor-pointer text-indigo-400 hover:underline">
+                                انتخاب فایل
+                                <input type="file" accept=".txt" class="hidden" onchange="handleFileSelect(event, 'youtubeCookiesText')">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Instagram Box -->
+                <div class="space-y-2.5 bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">📸</span>
+                            <span class="text-xs font-bold text-slate-200">کوکی‌های Instagram</span>
+                            <span id="instagramBadge" class="text-[10px] px-2 py-0.5 rounded-full {'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' if ig_count > 0 else 'bg-slate-800 text-slate-400'} font-mono">
+                                {ig_count} کوکی
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="clearCookieField('instagram')" class="text-xs text-rose-400 hover:text-rose-300">پاک‌سازی</button>
+                            <button onclick="exportCookieFile('instagram')" class="text-xs text-indigo-400 hover:text-indigo-300">دانلود</button>
+                        </div>
+                    </div>
+                    <div class="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-xl p-1.5 transition dropzone" id="instagramDropzone">
+                        <textarea id="instagramCookiesText" rows="6" placeholder="# Instagram Cookies&#10;.instagram.com	TRUE	/	..." class="w-full bg-slate-950 text-slate-200 text-xs font-mono p-2.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y leading-relaxed">{html.escape(instagram_cookies_val)}</textarea>
+                        <div class="text-[10px] text-slate-500 mt-1 px-1 flex items-center justify-between">
+                            <span>Drop <code class="text-indigo-300">instagram_cookies.txt</code></span>
+                            <label class="cursor-pointer text-indigo-400 hover:underline">
+                                انتخاب فایل
+                                <input type="file" accept=".txt" class="hidden" onchange="handleFileSelect(event, 'instagramCookiesText')">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cookie Action Buttons & Feedback Toast -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+                <div id="cookieStatusMsg" class="text-xs font-medium transition duration-300"></div>
+                <div class="flex items-center gap-3">
+                    <button onclick="saveCookiesForm()" id="saveCookieBtn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/20">
+                        <span>💾</span>
+                        <span>ذخیره تغییرات کوکی</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Search & Request Table Section -->
         <div class="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl shadow-black/30 space-y-0">
             <!-- Search Header Bar -->
@@ -661,8 +903,165 @@ async def get_dashboard(
         </div>
     </main>
 
-    <!-- Client-side JavaScript for Copy, Real-Time Search, Timezone detection & Shamsi date formatting -->
+    <!-- Client-side JavaScript for Cookie Management, Copy, Real-Time Search, Timezone detection & Shamsi date formatting -->
     <script>
+        function getAuthParams() {{
+            const urlParams = new URLSearchParams(window.location.search);
+            const key = urlParams.get('key') || urlParams.get('password');
+            return key ? `?key=${{encodeURIComponent(key)}}` : '';
+        }}
+
+        function toggleCookieMode(mode) {{
+            const genSec = document.getElementById('generalCookieSection');
+            const platSec = document.getElementById('platformCookieSection');
+            if (mode === 'general') {{
+                genSec.style.display = 'block';
+                platSec.style.display = 'none';
+            }} else {{
+                genSec.style.display = 'none';
+                platSec.style.display = 'grid';
+            }}
+        }}
+
+        function setupDropzone(dropzoneId, textareaId) {{
+            const dropzone = document.getElementById(dropzoneId);
+            const textarea = document.getElementById(textareaId);
+            if (!dropzone || !textarea) return;
+
+            ['dragenter', 'dragover'].forEach(name => {{
+                dropzone.addEventListener(name, (e) => {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.add('dropzone-active');
+                }}, false);
+            }});
+
+            ['dragleave', 'drop'].forEach(name => {{
+                dropzone.addEventListener(name, (e) => {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.remove('dropzone-active');
+                }}, false);
+            }});
+
+            dropzone.addEventListener('drop', (e) => {{
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {{
+                    const file = files[0];
+                    const reader = new FileReader();
+                    reader.onload = function(evt) {{
+                        textarea.value = evt.target.result;
+                        showCookieMsg("فایل کوکی با موفقیت بارگذاری شد.", "text-indigo-400");
+                    }};
+                    reader.readAsText(file, "UTF-8");
+                }}
+            }});
+        }}
+
+        function handleFileSelect(event, textareaId) {{
+            const input = event.target;
+            if (input.files && input.files[0]) {{
+                const reader = new FileReader();
+                reader.onload = function(e) {{
+                    document.getElementById(textareaId).value = e.target.result;
+                    showCookieMsg("فایل کوکی با موفقیت وارد شد.", "text-indigo-400");
+                }};
+                reader.readAsText(input.files[0], "UTF-8");
+            }}
+        }}
+
+        function showCookieMsg(msg, colorClass) {{
+            const el = document.getElementById('cookieStatusMsg');
+            el.className = `text-xs font-semibold ${{colorClass}}`;
+            el.innerText = msg;
+            setTimeout(() => {{
+                el.innerText = '';
+            }}, 4000);
+        }}
+
+        function clearCookieField(target) {{
+            if (!confirm(`آیا از پاک‌سازی کوکی‌های بخش ${{target}} اطمینان دارید؟`)) return;
+            if (target === 'general') document.getElementById('generalCookiesText').value = '';
+            if (target === 'youtube') document.getElementById('youtubeCookiesText').value = '';
+            if (target === 'instagram') document.getElementById('instagramCookiesText').value = '';
+
+            fetch(`/api/cookies/${{target}}${{getAuthParams()}}`, {{ method: 'DELETE' }})
+                .then(res => res.json())
+                .then(data => {{
+                    showCookieMsg(`کوکی‌های ${{target}} پاک‌سازی شدند.`, "text-amber-400");
+                }})
+                .catch(err => {{
+                    showCookieMsg("خطا در برقراری ارتباط با سرور", "text-rose-400");
+                }});
+        }}
+
+        function exportCookieFile(target) {{
+            let content = '';
+            let filename = 'cookies.txt';
+            if (target === 'general') {{
+                content = document.getElementById('generalCookiesText').value;
+                filename = 'cookies.txt';
+            }} else if (target === 'youtube') {{
+                content = document.getElementById('youtubeCookiesText').value;
+                filename = 'youtube_cookies.txt';
+            }} else if (target === 'instagram') {{
+                content = document.getElementById('instagramCookiesText').value;
+                filename = 'instagram_cookies.txt';
+            }}
+            if (!content) {{
+                alert('محتوای کوکی خالی است.');
+                return;
+            }}
+            const blob = new Blob([content], {{ type: 'text/plain;charset=utf-8' }});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }}
+
+        function saveCookiesForm() {{
+            const mode = document.querySelector('input[name="cookieMode"]:checked').value;
+            const general = document.getElementById('generalCookiesText').value;
+            const youtube = document.getElementById('youtubeCookiesText').value;
+            const instagram = document.getElementById('instagramCookiesText').value;
+
+            const btn = document.getElementById('saveCookieBtn');
+            const originalBtn = btn.innerHTML;
+            btn.innerHTML = '<span>⏳</span><span>در حال ذخیره...</span>';
+            btn.disabled = true;
+
+            fetch(`/api/cookies${{getAuthParams()}}`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    mode: mode,
+                    general_cookies: general,
+                    youtube_cookies: youtube,
+                    instagram_cookies: instagram
+                }})
+            }})
+            .then(res => {{
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            }})
+            .then(res => {{
+                btn.innerHTML = originalBtn;
+                btn.disabled = false;
+                showCookieMsg("✓ " + (res.message || "تنظیمات کوکی با موفقیت ذخیره شد."), "text-emerald-400");
+                if (res.data) {{
+                    document.getElementById('generalBadge').innerText = `${{res.data.general_count}} کوکی فعال`;
+                    document.getElementById('youtubeBadge').innerText = `${{res.data.youtube_count}} کوکی`;
+                    document.getElementById('instagramBadge').innerText = `${{res.data.instagram_count}} کوکی`;
+                }}
+            }})
+            .catch(err => {{
+                btn.innerHTML = originalBtn;
+                btn.disabled = false;
+                showCookieMsg("✕ خطا در ذخیره کوکی‌ها. لطفا مجدد تلاش کنید.", "text-rose-400");
+            }});
+        }}
+
         function copyText(text, btn) {{
             if (!text) return;
             navigator.clipboard.writeText(text).then(() => {{
@@ -737,6 +1136,10 @@ async def get_dashboard(
                 }}
             }} catch (e) {{}}
 
+            setupDropzone("generalDropzone", "generalCookiesText");
+            setupDropzone("youtubeDropzone", "youtubeCookiesText");
+            setupDropzone("instagramDropzone", "instagramCookiesText");
+
             document.querySelectorAll(".shamsi-time").forEach(elem => {{
                 const ts = parseFloat(elem.getAttribute("data-timestamp"));
                 if (ts) {{
@@ -752,3 +1155,4 @@ async def get_dashboard(
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=settings.port, reload=True)
+

@@ -42,23 +42,30 @@ def get_cookies_content(cookies_str: str) -> str:
     except Exception:
         return cookies_str
 
+from app.services.cookie_manager import cookie_manager
+
 def _setup_cookie_file(ydl_opts: dict) -> Optional[str]:
     """Applies cookie configuration to ydl_opts and returns temp_cookie_path if created."""
     temp_cookie_path = None
     
-    # Collect cookies from all configured environment variables
+    # 1. Primary: Load active cookies from CookieManager (Web UI / DB / Storage)
     cookie_parts = []
+    active_ui_cookies = cookie_manager.get_active_cookie_content()
+    if active_ui_cookies:
+        cookie_parts.append(active_ui_cookies)
+    
+    # 2. Secondary: Load cookies from environment variables if not already set or as supplement
     if settings.cookies:
         content = get_cookies_content(settings.cookies)
-        if content:
+        if content and content not in cookie_parts:
             cookie_parts.append(content)
     if settings.youtube_cookies:
         content = get_cookies_content(settings.youtube_cookies)
-        if content:
+        if content and content not in cookie_parts:
             cookie_parts.append(content)
     if settings.instagram_cookies:
         content = get_cookies_content(settings.instagram_cookies)
-        if content:
+        if content and content not in cookie_parts:
             cookie_parts.append(content)
             
     if cookie_parts:
@@ -69,7 +76,7 @@ def _setup_cookie_file(ydl_opts: dict) -> Optional[str]:
                 temp_cookie_path = f.name
             _temp_cookie_files.add(temp_cookie_path)
             ydl_opts['cookiefile'] = temp_cookie_path
-            logger.info("Using temporary cookie file created from cookie environment variables.")
+            logger.info("Using temporary cookie file created from CookieManager and environment variables.")
         except Exception as e:
             logger.error(f"Failed to create temporary cookie file: {e}")
     else:
