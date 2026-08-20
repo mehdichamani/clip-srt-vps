@@ -1,5 +1,10 @@
 # تاریخچه تغییرات (Changelog)
 
+## [v0.5.4] - 1405-05-16
+### حل قطعی چالش‌های JS و Signature یوتیوب
+- **تغییر موتور جاوااسکریپت به Deno:** اضافه شدن باینری رسمی `Deno` از طریق Multi-stage build در [Dockerfile](file:///home/unreal/projects/clip-srt-vps/Dockerfile) به عنوان موتور پیشنهادی و رسمی `yt-dlp` جهت رفع قطعی خطای `The page needs to be reloaded` و `n challenge solving failed`.
+- **نصب پکیج کامل `yt-dlp[default]`:** ارتقای پیش‌نیاز در `requirements.txt` جهت نصب اکستراهای رسمی شامل `yt-dlp-ejs`، `pycryptodomex` و کتابخانه‌های حل چالش.
+
 ## [v0.5.3] - 1405-05-16
 ### عیب‌یابی و لاگینگ پیشرفته
 - **فعال‌سازی حالت Verbose در `yt-dlp`:** افزودن `'verbose': True` و اتصال لاگر به لاگر اصلی سیستم (`logger`) جهت ثبت دقیق هدرها، کلاینت‌ها، موتورهای JS (Node.js) و تشخیص خطاهای استخراج مدیا در کنسول سرور.

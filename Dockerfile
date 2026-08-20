@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies (FFmpeg for media processing, Node.js for yt-dlp JS challenges)
+# Copy official Deno binary (recommended JS runtime for yt-dlp EJS challenges)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# Install system dependencies (FFmpeg for media processing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
