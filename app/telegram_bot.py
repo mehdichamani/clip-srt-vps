@@ -27,6 +27,7 @@ from app.services.stt_service import STTService
 from app.services.translator import TranslationService
 from app.services.job_tracker import job_tracker
 from app.services.telegraph import TelegraphService
+from app.services.telegram_rich import TelegramRichService
 from app.utils.srt import merge_bilingual_srt, srt_to_alternating_text, srt_to_lrc
 
 logger = logging.getLogger("clip_srt_bot")
@@ -724,47 +725,66 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 f"{footer}"
             )
 
+            bot_username = context.bot.username or "instazirnevisbot"
+            plain_footer = get_plain_footer(channel=channel, translate_method=translate_method, bot_username=bot_username)
+
             if len(full_text_message) < 4000:
                 await query.message.reply_text(
                     full_text_message,
                     parse_mode="HTML"
                 )
             else:
-                bot_username = context.bot.username or "instazirnevisbot"
-                plain_footer = get_plain_footer(channel=channel, translate_method=translate_method, bot_username=bot_username)
+                rich_sent = False
                 try:
-                    telegraph_url = await TelegraphService.create_page(
-                        title=subject or "خلاصه و زیرنویس",
-                        text_content=translated_text,
-                        author_name=f"@{bot_username}",
+                    # Attempt modern Telegram Rich Message (Bot API 10.1+)
+                    rich_blocks = TelegramRichService.build_bilingual_blocks(
+                        bilingual_srt=bilingual_srt,
+                        subject=subject or "خلاصه و متن ترجمه",
                         footer_text=plain_footer
                     )
-                    telegraph_msg = (
-                        f"<b>{safe_subject}</b>\n\n"
-                        f"📖 <b>متن کامل به صورت مقاله در تلگراف ایجاد شد:</b>\n"
-                        f"🔗 <a href=\"{telegraph_url}\">مشاهده مقاله در تلگراف (Instant View)</a>\n\n"
-                        f"{footer}"
+                    await TelegramRichService.send_rich_message(
+                        chat_id=query.message.chat_id,
+                        blocks=rich_blocks
                     )
-                    await query.message.reply_text(
-                        telegraph_msg,
-                        parse_mode="HTML"
-                    )
-                    logger.info(f"Sent long text output via Telegraph ({telegraph_url})")
-                except Exception as te_err:
-                    logger.warning(f"Failed to create Telegraph page, falling back to TXT document: {te_err}")
-                    txt_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".txt")
-                    txt_file_path = os.path.join(work_dir, txt_filename)
-                    plain_header = f"{subject}\n\n" if subject else "خلاصه ویدیو\n\n"
-                    doc_caption = f"<b>{safe_subject}</b>\n\n{footer}"
-                    with open(txt_file_path, "w", encoding="utf-8") as tf:
-                        tf.write(plain_header + translated_text + "\n\n" + plain_footer)
-                    with open(txt_file_path, "rb") as tf:
-                        await query.message.reply_document(
-                            document=tf,
-                            filename=txt_filename,
-                            caption=doc_caption,
+                    rich_sent = True
+                    logger.info(f"Sent long bilingual translation via Telegram Rich Messages to chat {query.message.chat_id}")
+                except Exception as rich_err:
+                    logger.warning(f"Failed to send Telegram Rich Message, falling back: {rich_err}")
+
+                if not rich_sent:
+                    try:
+                        telegraph_url = await TelegraphService.create_page(
+                            title=subject or "خلاصه و زیرنویس",
+                            text_content=translated_text,
+                            author_name=f"@{bot_username}",
+                            footer_text=plain_footer
+                        )
+                        telegraph_msg = (
+                            f"<b>{safe_subject}</b>\n\n"
+                            f"📖 <b>متن کامل به صورت مقاله در تلگراف ایجاد شد:</b>\n"
+                            f"🔗 <a href=\"{telegraph_url}\">مشاهده مقاله در تلگراف (Instant View)</a>\n\n"
+                            f"{footer}"
+                        )
+                        await query.message.reply_text(
+                            telegraph_msg,
                             parse_mode="HTML"
                         )
+                        logger.info(f"Sent long text output via Telegraph ({telegraph_url})")
+                    except Exception as te_err:
+                        logger.warning(f"Failed to create Telegraph page, falling back to TXT document: {te_err}")
+                        txt_filename = DownloaderService.sanitize_filename(channel=channel, title=subject, ext=".txt")
+                        txt_file_path = os.path.join(work_dir, txt_filename)
+                        plain_header = f"{subject}\n\n" if subject else "خلاصه ویدیو\n\n"
+                        doc_caption = f"<b>{safe_subject}</b>\n\n{footer}"
+                        with open(txt_file_path, "w", encoding="utf-8") as tf:
+                            tf.write(plain_header + translated_text + "\n\n" + plain_footer)
+                        with open(txt_file_path, "rb") as tf:
+                            await query.message.reply_document(
+                                document=tf,
+                                filename=txt_filename,
+                                caption=doc_caption,
+                                parse_mode="HTML"
+                            )
 
 
         # Update status to done and clean up job directory
