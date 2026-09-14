@@ -135,6 +135,8 @@ Platforms like YouTube and Instagram require cookie authentication for `yt-dlp` 
 4. Set Key: `YOUTUBE_COOKIES`, `INSTAGRAM_COOKIES`, or `COOKIES` and Value: `<your-base64-encoded-string>`.
 5. When the application runs, it automatically decodes and merges the cookies into a valid temporary Netscape cookie file for `yt-dlp`.
 
+> 💡 **Tip:** For a comprehensive guide on managing cookies, extraction tips, and handling database expiration/failover scenarios, refer to the [Cookie & Database Fallback Guide](COOKIE_FALLBACK.md).
+
 #### Step 3: Add Required Environment Variables on Render
 Add the following Environment Variables in your Render Web Service settings:
 
@@ -263,6 +265,8 @@ services:
 ۳. در داشبورد Render، به بخش **Environment** -> **Add Environment Variable** بروید.
 ۴. نام کلید را `YOUTUBE_COOKIES` یا `INSTAGRAM_COOKIES` یا `COOKIES` و مقدار آن را برابر با **رشته Base64 کپی‌شده** قرار دهید.
 ۵. ربات هنگام اجرا به طور خودکار این رشته‌ها را رمزگشایی کرده و فایل کوکی یکپارچه و معتبر ایجاد می‌کند.
+
+> 💡 **راهنمای تکمیلی:** برای بررسی ساختار معماری Fail-Safe، سناریوی انقضای دیتابیس Render و استخراج کوکی‌ها به [راهنمای جامع مدیریت کوکی و Fallback دیتابیس](COOKIE_FALLBACK.md) مراجعه کنید.
 
 #### گام سوم: تنظیم متغیرهای محیطی در Render
 
